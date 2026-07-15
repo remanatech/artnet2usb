@@ -26,6 +26,11 @@ export default function App() {
   const [state, setState] = useState<AppState | null>(null)
   const [preview, setPreview] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Tıkla-seç-eşleştir akışı: bir yayın + bir cihaz seçilir, tek tıkla rota kurulup başlar
+  const [selUniverse, setSelUniverse] = useState<number | null>(null)
+  const [selDevice, setSelDevice] = useState<string | null>(null)
+  const [newProtocol, setNewProtocol] = useState<RouteConfig['protocol']>('enttec-pro')
+  const [newHz, setNewHz] = useState(40)
 
   const refresh = useCallback(async () => {
     try {
@@ -77,6 +82,8 @@ export default function App() {
             universes={state.universes}
             nodeCount={state.nodes.length}
             preview={preview}
+            selected={selUniverse}
+            onSelect={(u) => setSelUniverse((cur) => (cur === u ? null : u))}
             onPreview={(u) => {
               setPreview(u)
               void api.setPreview(u)
@@ -85,10 +92,32 @@ export default function App() {
           {preview != null && <PreviewGrid universe={preview} onClose={() => { setPreview(null); void api.setPreview(null) }} />}
         </section>
         <section className="flex min-h-0 flex-col gap-3">
-          <DevicePanel devices={state.devices} onRename={(uid, name) => void run(() => api.rename(uid, name))} />
+          <DevicePanel
+            devices={state.devices}
+            selected={selDevice}
+            onSelect={(uid) => setSelDevice((cur) => (cur === uid ? null : uid))}
+            onRename={(uid, name) => void run(() => api.rename(uid, name))}
+          />
+          <PairBar
+            universe={selUniverse}
+            device={state.devices.find((d) => d.uid === selDevice) ?? null}
+            protocol={newProtocol}
+            hz={newHz}
+            onProtocol={setNewProtocol}
+            onHz={setNewHz}
+            onCreate={() => {
+              if (selUniverse == null || !selDevice) return
+              const id = `r-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+              void run(async () => {
+                await api.upsertRoute({ id, universe: selUniverse, deviceUid: selDevice, protocol: newProtocol, hz: newHz, enabled: false })
+                return api.startRoute(id)
+              })
+              setSelUniverse(null)
+              setSelDevice(null)
+            }}
+          />
           <RoutePanel
             routes={state.routes}
-            universes={state.universes}
             devices={state.devices}
             onUpsert={(r) => void run(() => api.upsertRoute(r))}
             onRemove={(id) => void run(() => api.removeRoute(id))}
@@ -131,11 +160,15 @@ function UniversePanel({
   universes,
   nodeCount,
   preview,
+  selected,
+  onSelect,
   onPreview
 }: {
   universes: SeenUniverse[]
   nodeCount: number
   preview: number | null
+  selected: number | null
+  onSelect: (u: number) => void
   onPreview: (u: number | null) => void
 }) {
   return (
@@ -152,30 +185,86 @@ function UniversePanel({
         </p>
       ) : (
         <div className="space-y-1">
-          {universes.map((u) => (
-            <div
-              key={u.universe}
-              className={`flex items-center justify-between rounded-lg border px-2.5 py-1.5 text-xs ${
-                preview === u.universe ? 'border-primary/60 bg-primary/10' : 'border-border-dark bg-background-dark/50'
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <span className="font-mono font-bold text-primary">U{u.universe}</span>
-                <span className="text-slate-400">{u.sourceIp}</span>
+          {universes.map((u) => {
+            const isSel = selected === u.universe
+            return (
+              <div
+                key={u.universe}
+                role="button"
+                title="Rota kurmak için seç"
+                onClick={() => onSelect(u.universe)}
+                className={`flex cursor-pointer items-center justify-between rounded-lg border px-2.5 py-1.5 text-xs transition-colors ${
+                  isSel
+                    ? 'border-primary bg-primary/15 ring-1 ring-primary/40'
+                    : 'border-border-dark bg-background-dark/50 hover:border-primary/40'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <span className="font-mono font-bold text-primary">U{u.universe}</span>
+                  <span className="text-slate-400">{u.sourceIp}</span>
+                  {isSel && <span className="text-[10px] font-bold uppercase text-primary">seçili</span>}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-[10px] text-slate-500">{u.fps} fps</span>
+                  <button
+                    className="btn px-2 py-1"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onPreview(preview === u.universe ? null : u.universe)
+                    }}
+                  >
+                    {preview === u.universe ? 'Kapat' : 'Önizle'}
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-[10px] text-slate-500">{u.fps} fps</span>
-                <button
-                  className="btn px-2 py-1"
-                  onClick={() => onPreview(preview === u.universe ? null : u.universe)}
-                >
-                  {preview === u.universe ? 'Kapat' : 'Önizle'}
-                </button>
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
+    </div>
+  )
+}
+
+/** Eşleştirme çubuğu: seçilen yayın + cihaz → tek tıkla rota kur ve başlat. */
+function PairBar({
+  universe,
+  device,
+  protocol,
+  hz,
+  onProtocol,
+  onHz,
+  onCreate
+}: {
+  universe: number | null
+  device: UsbDevice | null
+  protocol: RouteConfig['protocol']
+  hz: number
+  onProtocol: (p: RouteConfig['protocol']) => void
+  onHz: (h: number) => void
+  onCreate: () => void
+}) {
+  const ready = universe != null && device != null
+  return (
+    <div className={`card flex flex-wrap items-center gap-2 p-3 ${ready ? 'border-primary/50' : ''}`}>
+      <span className={`font-mono text-xs font-bold ${universe != null ? 'text-primary' : 'text-slate-600'}`}>
+        {universe != null ? `U${universe}` : 'Yayın seçin'}
+      </span>
+      <span className="text-slate-600">→</span>
+      <span className={`min-w-0 max-w-[10rem] truncate text-xs font-medium ${device ? 'text-slate-200' : 'text-slate-600'}`}>
+        {device ? (device.name ?? device.manufacturer ?? device.path) : 'Cihaz seçin'}
+      </span>
+      <select className="input" value={protocol} onChange={(e) => onProtocol(e.target.value as RouteConfig['protocol'])}>
+        <option value="enttec-pro">Enttec Pro</option>
+        <option value="open-dmx">Open DMX (FTDI)</option>
+      </select>
+      <select className="input" value={hz} onChange={(e) => onHz(Number(e.target.value))}>
+        {HZ_OPTIONS.map((h) => (
+          <option key={h} value={h}>{h} Hz</option>
+        ))}
+      </select>
+      <button className="btn-primary ml-auto" disabled={!ready} onClick={onCreate} title={ready ? '' : 'Önce bir yayın ve bir cihaz seçin'}>
+        ▶ Rota oluştur ve başlat
+      </button>
     </div>
   )
 }
@@ -211,7 +300,17 @@ function PreviewGrid({ universe, onClose }: { universe: number; onClose: () => v
   )
 }
 
-function DevicePanel({ devices, onRename }: { devices: UsbDevice[]; onRename: (uid: string, name: string) => void }) {
+function DevicePanel({
+  devices,
+  selected,
+  onSelect,
+  onRename
+}: {
+  devices: UsbDevice[]
+  selected: string | null
+  onSelect: (uid: string) => void
+  onRename: (uid: string, name: string) => void
+}) {
   const [editing, setEditing] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
@@ -231,8 +330,15 @@ function DevicePanel({ devices, onRename }: { devices: UsbDevice[]; onRename: (u
           {devices.map((d) => (
             <div
               key={d.uid}
-              className={`flex items-center justify-between gap-2 rounded-lg border border-border-dark px-2.5 py-1.5 text-xs ${
-                d.connected ? 'bg-background-dark/50' : 'opacity-50'
+              role="button"
+              title={d.connected ? 'Rota kurmak için seç' : 'Cihaz takılı değil'}
+              onClick={() => d.connected && onSelect(d.uid)}
+              className={`flex items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5 text-xs transition-colors ${
+                selected === d.uid
+                  ? 'border-primary bg-primary/15 ring-1 ring-primary/40'
+                  : d.connected
+                    ? 'cursor-pointer border-border-dark bg-background-dark/50 hover:border-primary/40'
+                    : 'border-border-dark opacity-50'
               }`}
             >
               <div className="min-w-0 flex-1">
@@ -267,7 +373,8 @@ function DevicePanel({ devices, onRename }: { devices: UsbDevice[]; onRename: (u
               <button
                 className="btn shrink-0 px-2 py-1"
                 title="Yeniden adlandır — ad cihaz kimliğine kalıcı bağlanır"
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation()
                   setEditing(d.uid)
                   setDraft(d.name ?? '')
                 }}
@@ -286,7 +393,6 @@ const HZ_OPTIONS = [10, 20, 25, 30, 35, 40, 44]
 
 function RoutePanel({
   routes,
-  universes,
   devices,
   onUpsert,
   onRemove,
@@ -294,24 +400,12 @@ function RoutePanel({
   onStop
 }: {
   routes: RouteStatus[]
-  universes: SeenUniverse[]
   devices: UsbDevice[]
   onUpsert: (r: RouteConfig) => void
   onRemove: (id: string) => void
   onStart: (id: string) => void
   onStop: (id: string) => void
 }) {
-  const connected = devices.filter((d) => d.connected)
-  const addRoute = () => {
-    onUpsert({
-      id: `r-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      universe: universes[0]?.universe ?? 0,
-      deviceUid: connected[0]?.uid ?? devices[0]?.uid ?? '',
-      protocol: 'enttec-pro',
-      hz: 40,
-      enabled: false
-    })
-  }
   const nameOf = (uid: string) => {
     const d = devices.find((x) => x.uid === uid)
     return d?.name ?? d?.manufacturer ?? uid.slice(0, 14)
@@ -319,37 +413,21 @@ function RoutePanel({
   return (
     <div className="card p-3">
       <div className="mb-2 flex items-center justify-between">
-        <p className="label">Yönlendirme Tablosu</p>
-        <button className="btn-primary px-2 py-1" onClick={addRoute} disabled={devices.length === 0}>
-          + Rota
-        </button>
+        <p className="label">Rotalar</p>
+        <span className="text-[10px] text-slate-500">{routes.filter((r) => r.active).length} yayında</span>
       </div>
       {routes.length === 0 ? (
         <p className="py-4 text-center text-xs text-slate-500">
-          Rota yok — bir Art-Net universe'ünü USB cihazına bağlamak için "+ Rota".
+          Henüz rota yok — üstte bir yayın ve bir cihaz seçip "Rota oluştur ve başlat".
         </p>
       ) : (
         <div className="space-y-1.5">
           {routes.map((r) => (
-            <div key={r.id} className="rounded-lg border border-border-dark bg-background-dark/50 px-2.5 py-2">
-              <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                <span className="label">U</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={32767}
-                  className="input w-16"
-                  value={r.universe}
-                  onChange={(e) => onUpsert({ ...r, universe: Number(e.target.value) })}
-                />
+            <div key={r.id} className={`rounded-lg border px-2.5 py-2 ${r.active ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-border-dark bg-background-dark/50'}`}>
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="font-mono font-bold text-primary">U{r.universe}</span>
                 <span className="text-slate-600">→</span>
-                <select className="input max-w-[11rem]" value={r.deviceUid} onChange={(e) => onUpsert({ ...r, deviceUid: e.target.value })}>
-                  {devices.map((d) => (
-                    <option key={d.uid} value={d.uid}>
-                      {nameOf(d.uid)}{d.connected ? '' : ' (takılı değil)'}
-                    </option>
-                  ))}
-                </select>
+                <span className="min-w-0 max-w-[10rem] truncate font-medium text-slate-200">{nameOf(r.deviceUid)}</span>
                 <select className="input" value={r.protocol} onChange={(e) => onUpsert({ ...r, protocol: e.target.value as RouteConfig['protocol'] })}>
                   <option value="enttec-pro">Enttec Pro</option>
                   <option value="open-dmx">Open DMX (FTDI)</option>
@@ -362,11 +440,11 @@ function RoutePanel({
                 <div className="ml-auto flex items-center gap-1.5">
                   {r.active ? (
                     <button className="btn px-2 py-1 text-red-300 hover:border-red-400/60 hover:text-red-300" onClick={() => onStop(r.id)}>
-                      Durdur
+                      ■ Durdur
                     </button>
                   ) : (
                     <button className="btn-primary px-2 py-1" onClick={() => onStart(r.id)}>
-                      Başlat
+                      ▶ Başlat
                     </button>
                   )}
                   <button className="btn px-2 py-1" title="Rotayı sil" onClick={() => onRemove(r.id)}>✕</button>
