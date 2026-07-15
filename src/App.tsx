@@ -17,6 +17,7 @@ const api = {
   removeRoute: (id: string) => window.artnet2usb.invoke('routes:remove', id) as Promise<AppState>,
   startRoute: (id: string) => window.artnet2usb.invoke('routes:start', id) as Promise<AppState>,
   stopRoute: (id: string) => window.artnet2usb.invoke('routes:stop', id) as Promise<AppState>,
+  freezeRoute: (id: string) => window.artnet2usb.invoke('routes:freeze', id) as Promise<AppState>,
   setSettings: (s: AppState['settings']) => window.artnet2usb.invoke('settings:set', s) as Promise<AppState>,
   setPreview: (u: number | null) => window.artnet2usb.invoke('preview:set', u),
   openExternal: (url: string) => window.artnet2usb.invoke('app:openExternal', url)
@@ -62,9 +63,12 @@ export default function App() {
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between border-b border-border-dark px-4 py-2.5">
-        <div className="flex items-baseline gap-2">
-          <span className="text-lg font-black tracking-tight text-primary">ArtNet 2 USB</span>
-          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Relackout</span>
+        <div className="flex items-center gap-2.5">
+          <img src="./logo.svg" alt="" className="h-8 w-8" aria-hidden />
+          <div className="flex items-baseline gap-2">
+            <span className="font-display text-lg font-bold uppercase tracking-tight text-slate-100">Relackout</span>
+            <span className="font-display text-sm font-bold uppercase tracking-tight text-primary">ArtNet 2 USB</span>
+          </div>
         </div>
         <SettingsBar settings={state.settings} onChange={(s) => void run(() => api.setSettings(s))} />
       </header>
@@ -123,6 +127,7 @@ export default function App() {
             onRemove={(id) => void run(() => api.removeRoute(id))}
             onStart={(id) => void run(() => api.startRoute(id))}
             onStop={(id) => void run(() => api.stopRoute(id))}
+            onFreeze={(id) => void run(() => api.freezeRoute(id))}
           />
         </section>
       </main>
@@ -397,7 +402,8 @@ function RoutePanel({
   onUpsert,
   onRemove,
   onStart,
-  onStop
+  onStop,
+  onFreeze
 }: {
   routes: RouteStatus[]
   devices: UsbDevice[]
@@ -405,6 +411,7 @@ function RoutePanel({
   onRemove: (id: string) => void
   onStart: (id: string) => void
   onStop: (id: string) => void
+  onFreeze: (id: string) => void
 }) {
   const nameOf = (uid: string) => {
     const d = devices.find((x) => x.uid === uid)
@@ -423,7 +430,16 @@ function RoutePanel({
       ) : (
         <div className="space-y-1.5">
           {routes.map((r) => (
-            <div key={r.id} className={`rounded-lg border px-2.5 py-2 ${r.active ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-border-dark bg-background-dark/50'}`}>
+            <div
+              key={r.id}
+              className={`rounded-lg border px-2.5 py-2 ${
+                r.active && r.frozen
+                  ? 'border-sky-400/50 bg-sky-400/5'
+                  : r.active
+                    ? 'border-emerald-500/40 bg-emerald-500/5'
+                    : 'border-border-dark bg-background-dark/50'
+              }`}
+            >
               <div className="flex flex-wrap items-center gap-2 text-xs">
                 <span className="font-mono font-bold text-primary">U{r.universe}</span>
                 <span className="text-slate-600">→</span>
@@ -438,6 +454,15 @@ function RoutePanel({
                   ))}
                 </select>
                 <div className="ml-auto flex items-center gap-1.5">
+                  {r.active && (
+                    <button
+                      className={`btn px-2 py-1 ${r.frozen ? 'border-sky-300/70 bg-sky-300/10 text-sky-300' : ''}`}
+                      title={r.frozen ? 'Canlı veriye dön' : 'O anki kareyi dondur — çıkış sabit kalır'}
+                      onClick={() => onFreeze(r.id)}
+                    >
+                      {r.frozen ? '❄ Devam et' : '❄ Freeze'}
+                    </button>
+                  )}
                   {r.active ? (
                     <button className="btn px-2 py-1 text-red-300 hover:border-red-400/60 hover:text-red-300" onClick={() => onStop(r.id)}>
                       ■ Durdur
@@ -451,7 +476,8 @@ function RoutePanel({
                 </div>
               </div>
               <div className="mt-1 flex items-center gap-2 text-[10px]">
-                {r.active && <span className="font-bold text-emerald-400">● YAYINDA</span>}
+                {r.active && !r.frozen && <span className="font-bold text-emerald-400">● YAYINDA</span>}
+                {r.active && r.frozen && <span className="font-bold text-sky-300">❄ DONDURULDU — çıkış sabit</span>}
                 {r.error && <span className="text-red-400">{r.error}</span>}
                 {r.active && <span className="font-mono text-slate-500">{r.framesSent} kare</span>}
               </div>

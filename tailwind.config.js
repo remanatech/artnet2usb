@@ -8,6 +8,9 @@ export default {
         'background-dark': '#101d22',
         'surface-dark': '#182c34',
         'border-dark': '#223e49'
+      },
+      fontFamily: {
+        display: ['Space Grotesk', 'sans-serif']
       }
     }
   },

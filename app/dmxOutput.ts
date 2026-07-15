@@ -37,6 +37,8 @@ interface ActiveOutput {
   framesSent: number
   error: string | null
   writing: boolean
+  /** Dondurulmuş kare — doluysa canlı veri yerine bu basılır */
+  frozenFrame: Buffer | null
 }
 
 export class DmxOutputEngine {
@@ -65,9 +67,28 @@ export class DmxOutputEngine {
     return this.active.has(routeId)
   }
 
-  statusOf(route: RouteConfig): Pick<RouteStatus, 'active' | 'error' | 'framesSent'> {
+  statusOf(route: RouteConfig): Pick<RouteStatus, 'active' | 'error' | 'framesSent' | 'frozen'> {
     const a = this.active.get(route.id)
-    return { active: !!a && !a.error, error: a?.error ?? null, framesSent: a?.framesSent ?? 0 }
+    return {
+      active: !!a && !a.error,
+      error: a?.error ?? null,
+      framesSent: a?.framesSent ?? 0,
+      frozen: !!a?.frozenFrame
+    }
+  }
+
+  /** Freeze: o anki kareyi sabitle; ikinci çağrı canlıya döndürür. Döner: yeni frozen durumu. */
+  toggleFreeze(route: RouteConfig): boolean {
+    const out = this.active.get(route.id)
+    if (!out) return false
+    if (out.frozenFrame) {
+      out.frozenFrame = null
+      return false
+    }
+    // O anki çıkış karesi: canlı veri, yoksa son basılan kare, yoksa karanlık
+    const fr = this.getFrame(route.universe)
+    out.frozenFrame = Buffer.from(fr?.data ?? this.lastFrames.get(route.id) ?? Buffer.alloc(512))
+    return true
   }
 
   /** Rotayı başlat: cihazın güncel port yolunu uid ile bul, portu aç, döngüyü kur. */
@@ -89,7 +110,7 @@ export class DmxOutputEngine {
       port.open((err) => (err ? reject(err) : resolve()))
     })
     const hz = Math.max(1, Math.min(44, route.hz))
-    const out: ActiveOutput = { port, timer: null as unknown as NodeJS.Timeout, framesSent: 0, error: null, writing: false }
+    const out: ActiveOutput = { port, timer: null as unknown as NodeJS.Timeout, framesSent: 0, error: null, writing: false, frozenFrame: null }
     out.timer = setInterval(() => void this.tick(route, out), Math.round(1000 / hz))
     port.on('error', (err) => {
       out.error = err.message
@@ -115,7 +136,7 @@ export class DmxOutputEngine {
 
   private async tick(route: RouteConfig, out: ActiveOutput): Promise<void> {
     if (out.writing || !out.port.isOpen) return
-    const dmx = this.currentFrame(route)
+    const dmx = out.frozenFrame ?? this.currentFrame(route)
     if (!dmx) return
     out.writing = true
     try {

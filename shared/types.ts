@@ -49,6 +49,8 @@ export interface RouteStatus extends RouteConfig {
   active: boolean
   error: string | null
   framesSent: number
+  /** Çıkış donduruldu mu — o anki kare sabit basılır, canlı veri yok sayılır */
+  frozen: boolean
 }
 
 export interface AppSettings {

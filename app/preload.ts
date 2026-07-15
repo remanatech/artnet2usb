@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('artnet2usb', {
       'routes:remove',
       'routes:start',
       'routes:stop',
+      'routes:freeze',
       'settings:set',
       'preview:set',
       'app:openExternal'

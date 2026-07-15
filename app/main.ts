@@ -96,6 +96,13 @@ function registerIpc(): void {
     return buildState()
   })
 
+  ipcMain.handle('routes:freeze', (_e, id: string) => {
+    const route = store.routes.find((r) => r.id === id)
+    if (!route) throw new Error('Rota bulunamadı')
+    engine.toggleFreeze(route)
+    return buildState()
+  })
+
   ipcMain.handle('routes:stop', async (_e, id: string) => {
     await engine.stop(id)
     const route = store.routes.find((r) => r.id === id)
