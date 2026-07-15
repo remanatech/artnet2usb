@@ -1,0 +1,70 @@
+{
+  "name": "relackout-artnet2usb",
+  "version": "0.1.0",
+  "description": "Relackout ArtNet 2 USB \u2014 a\u011fdaki Art-Net yay\u0131nlar\u0131n\u0131 USB DMX aray\u00fczlerine k\u00f6pr\u00fcler",
+  "main": "dist/main/main.js",
+  "author": "remana.tech",
+  "license": "MIT",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron .",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "dist": "electron-vite build && electron-builder"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "serialport": "^12.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "electron": "^33.2.0",
+    "electron-builder": "^26.0.0",
+    "electron-vite": "^2.3.0",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.15",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11",
+    "vitest": "^2.1.8"
+  },
+  "allowScripts": {
+    "electron@33.4.11": true,
+    "esbuild@0.21.5": true,
+    "@serialport/bindings-cpp@12.0.1": true,
+    "electron-winstaller@5.4.0": true
+  },
+  "build": {
+    "appId": "tech.remana.relackout.artnet2usb",
+    "productName": "Relackout ArtNet 2 USB",
+    "files": [
+      "dist/**"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "mac": {
+      "category": "public.app-category.utilities",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    }
+  }
+}
