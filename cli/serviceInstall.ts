@@ -69,6 +69,17 @@ WantedBy=multi-user.target
 const LABEL = 'tech.remana.relackout.artnet2usb-cli'
 const SYSTEMD_UNIT_PATH = '/etc/systemd/system/artnet2usb-cli.service'
 
+/**
+ * Linux'ta /etc/systemd/system'a yazmak neredeyse her zaman sudo gerektirir —
+ * bu durumda os.userInfo().username 'root' döner, servis yanlışlıkla root
+ * olarak üretilir. `sudo` çağıranın gerçek kullanıcısını SUDO_USER'da bırakır;
+ * varsa onu kullan (systemd'nin User= alanı bu kullanıcı olmalı).
+ */
+function resolveInvokingUser(): string {
+  const sudoUser = process.env.SUDO_USER
+  return sudoUser && sudoUser !== 'root' ? sudoUser : os.userInfo().username
+}
+
 function launchdPlistPath(): string {
   return path.join(os.homedir(), 'Library', 'LaunchAgents', `${LABEL}.plist`)
 }
@@ -98,7 +109,7 @@ export function registerServiceCommands(program: Command): void {
         nodePath: process.execPath,
         scriptPath,
         args,
-        user: os.userInfo().username,
+        user: resolveInvokingUser(),
         label: LABEL
       }
 
