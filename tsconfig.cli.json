@@ -10,5 +10,6 @@
     "types": ["node"],
     "declaration": false
   },
-  "include": ["cli/**/*.ts", "app/artnet.ts", "app/dmxOutput.ts", "shared/**/*.ts"]
+  "include": ["cli/**/*.ts", "app/artnet.ts", "app/dmxOutput.ts", "shared/**/*.ts"],
+  "exclude": ["**/*.test.ts"]
 }

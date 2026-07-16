@@ -4,7 +4,11 @@ import { defaultConfigDir } from './configDir'
 import { startBridge } from './bridge'
 import { ArtNetListener } from '../app/artnet'
 import { DmxOutputEngine } from '../app/dmxOutput'
-import type { OutputProtocol } from '../shared/types'
+import { pickAutoRoute } from './autoRoute'
+import { runDoctorChecks } from './doctor'
+import { registerRouteCommands } from './routeCommands'
+import { registerServiceCommands } from './serviceInstall'
+import type { OutputProtocol, RouteConfig } from '../shared/types'
 
 // commander + @clack/prompts saf ESM paketler ("type":"module", sadece .mjs) — bu CLI
 // CommonJS'e derleniyor (app/artnet.ts + app/dmxOutput.ts'i DEĞİŞTİRMEDEN, extensionless
@@ -34,26 +38,54 @@ async function listPorts(): Promise<void> {
   }
 }
 
-async function runBridge(configDir: string): Promise<void> {
+interface RunOpts {
+  json?: boolean
+}
+
+function statusLine(nowTs: string, r: RouteConfig, status: ReturnType<import('../app/dmxOutput').DmxOutputEngine['statusOf']>, json?: boolean): string {
+  if (json) {
+    return JSON.stringify({
+      ts: nowTs,
+      type: 'status',
+      routeId: r.id,
+      universe: r.universe,
+      deviceUid: r.deviceUid,
+      protocol: r.protocol,
+      hz: r.hz,
+      active: status.active,
+      error: status.error,
+      framesSent: status.framesSent,
+      frozen: status.frozen
+    })
+  }
+  const line = status.active
+    ? `OK — ${status.framesSent} frames sent${status.frozen ? ' (frozen)' : ''}`
+    : `ERROR: ${status.error ?? 'device not connected'}`
+  return `[${nowTs}] universe ${r.universe} -> ${r.deviceUid} (${r.protocol}, ${r.hz}Hz): ${line}`
+}
+
+async function runBridge(configDir: string, opts: RunOpts = {}): Promise<void> {
   const store = new Store(configDir)
   if (store.routes.length === 0) {
-    console.log('No routes configured. Run `artnet2usb-cli configure` first.')
+    if (opts.json) console.log(JSON.stringify({ ts: ts(), type: 'error', message: 'no_routes_configured' }))
+    else console.log('No routes configured. Run `artnet2usb-cli configure` first.')
     return
   }
-  console.log(`[${ts()}] config: ${configDir}`)
-  console.log(`[${ts()}] starting bridge...`)
+  if (opts.json) {
+    console.log(JSON.stringify({ ts: ts(), type: 'startup', configDir }))
+  } else {
+    console.log(`[${ts()}] config: ${configDir}`)
+    console.log(`[${ts()}] starting bridge...`)
+  }
   const bridge = await startBridge(store)
   const enabled = store.routes.filter((r) => r.enabled)
-  console.log(`[${ts()}] ${enabled.length}/${store.routes.length} route(s) enabled.`)
+  if (opts.json) console.log(JSON.stringify({ ts: ts(), type: 'summary', enabled: enabled.length, total: store.routes.length }))
+  else console.log(`[${ts()}] ${enabled.length}/${store.routes.length} route(s) enabled.`)
 
   const statusInterval = setInterval(() => {
     for (const r of store.routes) {
       if (!r.enabled) continue
-      const status = bridge.engine.statusOf(r)
-      const line = status.active
-        ? `OK — ${status.framesSent} frames sent${status.frozen ? ' (frozen)' : ''}`
-        : `ERROR: ${status.error ?? 'device not connected'}`
-      console.log(`[${ts()}] universe ${r.universe} -> ${r.deviceUid} (${r.protocol}, ${r.hz}Hz): ${line}`)
+      console.log(statusLine(ts(), r, bridge.engine.statusOf(r), opts.json))
     }
   }, 2000)
 
@@ -62,13 +94,64 @@ async function runBridge(configDir: string): Promise<void> {
     if (shuttingDown) return
     shuttingDown = true
     clearInterval(statusInterval)
-    console.log(`\n[${ts()}] shutting down...`)
+    if (opts.json) console.log(JSON.stringify({ ts: ts(), type: 'shutdown' }))
+    else console.log(`\n[${ts()}] shutting down...`)
     await bridge.shutdown()
     process.exit(0)
   }
   process.on('SIGINT', () => void shutdown())
   process.on('SIGTERM', () => void shutdown())
   // setInterval + açık UDP soket süreci ayakta tutar — Ctrl+C/SIGTERM'e kadar bekler.
+}
+
+async function runAuto(configDir: string, opts: { protocol: OutputProtocol; hz: number; start: boolean; json?: boolean }): Promise<void> {
+  const store = new Store(configDir)
+  const listener = new ArtNetListener()
+  listener.start()
+  await new Promise((r) => setTimeout(r, 3000))
+  const universes = listener.list()
+  listener.stop()
+
+  const engine = new DmxOutputEngine(
+    () => null,
+    () => store.settings
+  )
+  const devices = await engine.listDevices()
+
+  const result = pickAutoRoute(universes, devices)
+  if ('error' in result) {
+    console.error(result.error)
+    process.exitCode = 1
+    return
+  }
+
+  store.upsertRoute({
+    id: 'auto',
+    universe: result.universe,
+    deviceUid: result.deviceUid,
+    protocol: opts.protocol,
+    hz: opts.hz,
+    enabled: true
+  })
+  console.log(`Route saved: universe ${result.universe} -> ${result.deviceUid} (${opts.protocol}, ${opts.hz}Hz)`)
+
+  if (opts.start) await runBridge(configDir, { json: opts.json })
+}
+
+async function listNodes(): Promise<void> {
+  const listener = new ArtNetListener()
+  listener.start()
+  await new Promise((r) => setTimeout(r, 3000))
+  const nodes = listener.listNodes()
+  listener.stop()
+  if (nodes.length === 0) {
+    console.log('No Art-Net nodes found (listened for 3s).')
+    return
+  }
+  console.log(`${nodes.length} node(s) found:\n`)
+  for (const n of nodes) {
+    console.log(`  ${n.ip}  ${n.shortName}${n.longName && n.longName !== n.shortName ? ` — ${n.longName}` : ''}`)
+  }
 }
 
 async function promptManualUniverse(clack: ClackModule): Promise<number | undefined> {
@@ -230,8 +313,9 @@ async function main(): Promise<void> {
     .command('run')
     .description('Start the bridge using saved routes and run until stopped (Ctrl+C)')
     .option('--config <dir>', 'Config directory override (default: shared with the desktop app)')
-    .action(async (opts: { config?: string }) => {
-      await runBridge(opts.config ?? defaultConfigDir())
+    .option('--json', 'Emit newline-delimited JSON status instead of human-readable text')
+    .action(async (opts: { config?: string; json?: boolean }) => {
+      await runBridge(opts.config ?? defaultConfigDir(), { json: opts.json })
     })
 
   program
@@ -241,6 +325,63 @@ async function main(): Promise<void> {
     .action(async (opts: { config?: string }) => {
       await runConfigure(clack, opts.config ?? defaultConfigDir())
     })
+
+  program
+    .command('auto')
+    .description('Auto-detect a single Art-Net universe and USB device, save the route, and start it (unless --no-start)')
+    .option('--protocol <protocol>', 'enttec-pro or open-dmx', 'enttec-pro')
+    .option('--hz <hz>', 'Output rate in Hz (1-44)', '40')
+    .option('--config <dir>', 'Config directory override (default: shared with the desktop app)')
+    .option('--no-start', 'Only detect and save the route, do not start the bridge')
+    .option('--json', 'Emit newline-delimited JSON status instead of human-readable text')
+    .action(async (opts: { protocol: string; hz: string; config?: string; start: boolean; json?: boolean }) => {
+      const protocol = opts.protocol as OutputProtocol
+      if (protocol !== 'enttec-pro' && protocol !== 'open-dmx') {
+        console.error(`Invalid --protocol: ${opts.protocol} (expected enttec-pro or open-dmx)`)
+        process.exitCode = 1
+        return
+      }
+      const hz = Number(opts.hz)
+      if (!Number.isInteger(hz) || hz < 1 || hz > 44) {
+        console.error(`Invalid --hz: ${opts.hz} (expected an integer between 1 and 44)`)
+        process.exitCode = 1
+        return
+      }
+      await runAuto(opts.config ?? defaultConfigDir(), { protocol, hz, start: opts.start, json: opts.json })
+    })
+
+  program
+    .command('doctor')
+    .description('Check the saved config for common problems (disconnected devices, conflicting routes)')
+    .option('--config <dir>', 'Config directory override (default: shared with the desktop app)')
+    .action(async (opts: { config?: string }) => {
+      const configDir = opts.config ?? defaultConfigDir()
+      const store = new Store(configDir)
+      const engine = new DmxOutputEngine(
+        () => null,
+        () => store.settings
+      )
+      const devices = await engine.listDevices()
+      const issues = runDoctorChecks(store.routes, devices)
+      console.log(`config: ${configDir}`)
+      console.log(`${store.routes.length} route(s), ${store.routes.filter((r) => r.enabled).length} enabled.`)
+      if (issues.length === 0) {
+        console.log('No issues found.')
+        return
+      }
+      for (const issue of issues) console.log(`  ${issue.level === 'error' ? '✗' : '⚠'} ${issue.message}`)
+      if (issues.some((i) => i.level === 'error')) process.exitCode = 1
+    })
+
+  program
+    .command('list-nodes')
+    .description('Listen for Art-Net nodes on the network (~3s) and list them')
+    .action(async () => {
+      await listNodes()
+    })
+
+  registerRouteCommands(program)
+  registerServiceCommands(program)
 
   await program.parseAsync(process.argv)
 }
