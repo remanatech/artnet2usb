@@ -329,7 +329,7 @@ async function main(): Promise<void> {
   program
     .command('auto')
     .description('Auto-detect a single Art-Net universe and USB device, save the route, and start it (unless --no-start)')
-    .option('--protocol <protocol>', 'enttec-pro or open-dmx', 'enttec-pro')
+    .option('--protocol <protocol>', 'enttec-pro or open-dmx', 'open-dmx')
     .option('--hz <hz>', 'Output rate in Hz (1-44)', '40')
     .option('--config <dir>', 'Config directory override (default: shared with the desktop app)')
     .option('--no-start', 'Only detect and save the route, do not start the bridge')

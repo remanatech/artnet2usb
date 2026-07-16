@@ -20,7 +20,7 @@ export function registerRouteCommands(program: Command): void {
     .description('Add or update a route')
     .requiredOption('--universe <n>', 'Art-Net universe number (0-32767)')
     .requiredOption('--device <uid>', 'Target device uid (see list-ports)')
-    .option('--protocol <protocol>', 'enttec-pro or open-dmx', 'enttec-pro')
+    .option('--protocol <protocol>', 'enttec-pro or open-dmx', 'open-dmx')
     .option('--hz <hz>', 'Output rate in Hz (1-44)', '40')
     .option('--disabled', 'Save the route disabled (not started automatically)')
     .option('--id <id>', 'Route id — reuses/updates an existing route if it already exists')
