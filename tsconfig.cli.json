@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "outDir": "dist-cli",
+    "types": ["node"],
+    "declaration": false
+  },
+  "include": ["cli/**/*.ts", "app/artnet.ts", "app/dmxOutput.ts", "shared/**/*.ts"]
+}

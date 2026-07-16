@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "Relackout ArtNet 2 USB \u2014 a\u011fdaki Art-Net yay\u0131nlar\u0131n\u0131 USB DMX aray\u00fczlerine k\u00f6pr\u00fcler",
   "main": "dist/main/main.js",
+  "bin": {
+    "artnet2usb-cli": "dist-cli/cli/index.js"
+  },
   "author": "remana.tech",
   "license": "MIT",
   "scripts": {
@@ -14,10 +17,14 @@
     "dist": "electron-vite build && electron-builder",
     "dist:mac": "electron-vite build && electron-builder --mac",
     "dist:win": "electron-vite build && electron-builder --win",
-    "dist:linux": "electron-vite build && electron-builder --linux"
+    "dist:linux": "electron-vite build && electron-builder --linux",
+    "build:cli": "tsc -p tsconfig.cli.json",
+    "dev:cli": "tsx cli/index.ts"
   },
   "dependencies": {
+    "@clack/prompts": "^1.7.0",
     "@fontsource/space-grotesk": "^5.2.10",
+    "commander": "^15.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "serialport": "^12.0.0"
@@ -32,6 +39,7 @@
     "electron-vite": "^2.3.0",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.15",
+    "tsx": "^4.19.2",
     "typescript": "^5.6.3",
     "vite": "^5.4.11",
     "vitest": "^2.1.8"
