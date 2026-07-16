@@ -42,6 +42,12 @@ export interface RouteConfig {
   protocol: OutputProtocol
   hz: number
   enabled: boolean
+  /**
+   * Kanal başlangıç (patch) offset'i, 0-indexed. Varsayılan 0 (kayma yok).
+   * N verilirse: cihazın ilk N kanalı karanlık kalır, universe'in kanal 1'i
+   * cihazın kanal N+1'ine yazılır (tüm veri sağa kayar).
+   */
+  channelOffset?: number
 }
 
 export interface RouteStatus extends RouteConfig {

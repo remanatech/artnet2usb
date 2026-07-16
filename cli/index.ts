@@ -104,7 +104,10 @@ async function runBridge(configDir: string, opts: RunOpts = {}): Promise<void> {
   // setInterval + açık UDP soket süreci ayakta tutar — Ctrl+C/SIGTERM'e kadar bekler.
 }
 
-async function runAuto(configDir: string, opts: { protocol: OutputProtocol; hz: number; start: boolean; json?: boolean }): Promise<void> {
+async function runAuto(
+  configDir: string,
+  opts: { protocol: OutputProtocol; hz: number; channelOffset: number; start: boolean; json?: boolean }
+): Promise<void> {
   const store = new Store(configDir)
   const listener = new ArtNetListener()
   listener.start()
@@ -131,9 +134,12 @@ async function runAuto(configDir: string, opts: { protocol: OutputProtocol; hz: 
     deviceUid: result.deviceUid,
     protocol: opts.protocol,
     hz: opts.hz,
+    channelOffset: opts.channelOffset,
     enabled: true
   })
-  console.log(`Route saved: universe ${result.universe} -> ${result.deviceUid} (${opts.protocol}, ${opts.hz}Hz)`)
+  console.log(
+    `Route saved: universe ${result.universe} -> ${result.deviceUid} (${opts.protocol}, ${opts.hz}Hz${opts.channelOffset ? `, offset ${opts.channelOffset}` : ''})`
+  )
 
   if (opts.start) await runBridge(configDir, { json: opts.json })
 }
@@ -229,12 +235,23 @@ async function addRouteFlow(clack: ClackModule, store: Store): Promise<void> {
   })
   if (clack.isCancel(hzStr)) return
 
+  const channelOffsetStr = await clack.text({
+    message: 'Channel start (patch) offset, 0-511 — leading device channels stay dark',
+    initialValue: '0',
+    validate: (v) => {
+      const n = Number(v)
+      return Number.isInteger(n) && n >= 0 && n <= 511 ? undefined : 'Enter an integer between 0 and 511'
+    }
+  })
+  if (clack.isCancel(channelOffsetStr)) return
+
   store.upsertRoute({
     id: `route-${Date.now()}`,
     universe,
     deviceUid: deviceUid as string,
     protocol: protocol as OutputProtocol,
     hz: Number(hzStr),
+    channelOffset: Number(channelOffsetStr),
     enabled: true
   })
   clack.log.success('Route saved.')
@@ -258,7 +275,9 @@ async function runConfigure(clack: ClackModule, configDir: string): Promise<void
     const routes = store.routes
     if (routes.length > 0) {
       clack.log.info(
-        `Current routes:\n${routes.map((r) => `  ${r.enabled ? '●' : '○'} universe ${r.universe} -> ${r.deviceUid} (${r.protocol}, ${r.hz}Hz)`).join('\n')}`
+        `Current routes:\n${routes
+          .map((r) => `  ${r.enabled ? '●' : '○'} universe ${r.universe} -> ${r.deviceUid} (${r.protocol}, ${r.hz}Hz${r.channelOffset ? `, offset ${r.channelOffset}` : ''})`)
+          .join('\n')}`
       )
     } else {
       clack.log.info('No routes configured yet.')
@@ -331,10 +350,11 @@ async function main(): Promise<void> {
     .description('Auto-detect a single Art-Net universe and USB device, save the route, and start it (unless --no-start)')
     .option('--protocol <protocol>', 'enttec-pro or open-dmx', 'open-dmx')
     .option('--hz <hz>', 'Output rate in Hz (1-44)', '40')
+    .option('--channel-offset <n>', 'Channel start (patch) offset within the universe, 0-511 — leading N device channels stay dark', '0')
     .option('--config <dir>', 'Config directory override (default: shared with the desktop app)')
     .option('--no-start', 'Only detect and save the route, do not start the bridge')
     .option('--json', 'Emit newline-delimited JSON status instead of human-readable text')
-    .action(async (opts: { protocol: string; hz: string; config?: string; start: boolean; json?: boolean }) => {
+    .action(async (opts: { protocol: string; hz: string; channelOffset: string; config?: string; start: boolean; json?: boolean }) => {
       const protocol = opts.protocol as OutputProtocol
       if (protocol !== 'enttec-pro' && protocol !== 'open-dmx') {
         console.error(`Invalid --protocol: ${opts.protocol} (expected enttec-pro or open-dmx)`)
@@ -347,7 +367,13 @@ async function main(): Promise<void> {
         process.exitCode = 1
         return
       }
-      await runAuto(opts.config ?? defaultConfigDir(), { protocol, hz, start: opts.start, json: opts.json })
+      const channelOffset = Number(opts.channelOffset)
+      if (!Number.isInteger(channelOffset) || channelOffset < 0 || channelOffset > 511) {
+        console.error(`Invalid --channel-offset: ${opts.channelOffset} (expected an integer between 0 and 511)`)
+        process.exitCode = 1
+        return
+      }
+      await runAuto(opts.config ?? defaultConfigDir(), { protocol, hz, channelOffset, start: opts.start, json: opts.json })
     })
 
   program

@@ -24,6 +24,19 @@ export function buildEnttecFrame(dmx: Buffer): Buffer {
   return frame
 }
 
+/**
+ * Kanal başlangıç (patch) offset'i uygular: ilk `offset` bayt karanlık (0)
+ * kalır, kaynak veri offset'ten itibaren yazılır (sağa kayar). offset<=0 ise
+ * dokunmadan orijinal buffer'ı döner. (Saf — test edilir.)
+ */
+export function applyChannelOffset(dmx: Buffer, offset: number): Buffer {
+  if (!offset || offset <= 0) return dmx
+  const shifted = Buffer.alloc(512)
+  const len = Math.min(dmx.length, 512 - offset)
+  if (len > 0) dmx.copy(shifted, offset, 0, len)
+  return shifted
+}
+
 /** serialport list kaydından kalıcı cihaz kimliği. (Saf — test edilir.) */
 export function deviceUid(p: { vendorId?: string; productId?: string; serialNumber?: string; path: string }): string {
   const vid = (p.vendorId ?? '?').toLowerCase()
@@ -136,8 +149,9 @@ export class DmxOutputEngine {
 
   private async tick(route: RouteConfig, out: ActiveOutput): Promise<void> {
     if (out.writing || !out.port.isOpen) return
-    const dmx = out.frozenFrame ?? this.currentFrame(route)
-    if (!dmx) return
+    const raw = out.frozenFrame ?? this.currentFrame(route)
+    if (!raw) return
+    const dmx = applyChannelOffset(raw, route.channelOffset ?? 0)
     out.writing = true
     try {
       if (route.protocol === 'enttec-pro') {

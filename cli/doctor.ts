@@ -22,6 +22,10 @@ export function runDoctorChecks(routes: RouteConfig[], devices: UsbDevice[]): Do
     if (!Number.isInteger(r.hz) || r.hz < 1 || r.hz > 44) {
       issues.push({ level: 'error', message: `Route "${r.id}": hz ${r.hz} is out of range (1-44).` })
     }
+    const offset = r.channelOffset ?? 0
+    if (!Number.isInteger(offset) || offset < 0 || offset > 511) {
+      issues.push({ level: 'error', message: `Route "${r.id}": channelOffset ${offset} is out of range (0-511).` })
+    }
   }
 
   const byUniverse = new Map<number, RouteConfig[]>()

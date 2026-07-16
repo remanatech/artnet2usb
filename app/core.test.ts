@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { buildArtPoll, parseArtDmx, parsePollReply } from './artnet'
-import { buildEnttecFrame, deviceUid } from './dmxOutput'
+import { applyChannelOffset, buildEnttecFrame, deviceUid } from './dmxOutput'
 
 function makeArtDmx(universe: number, data: number[]): Buffer {
   const b = Buffer.alloc(18 + data.length)
@@ -86,5 +86,36 @@ describe('DMX çıkışı', () => {
 
   it('seri no yoksa yol kimliğe girer (en iyi çaba)', () => {
     expect(deviceUid({ vendorId: '0403', productId: '6001', path: 'COM3' })).toBe('0403:6001:COM3')
+  })
+})
+
+describe('applyChannelOffset (kanal başlangıç/patch offset)', () => {
+  it('offset 0 ise buffer\'ı olduğu gibi döner', () => {
+    const dmx = Buffer.from([255, 128, 64])
+    expect(applyChannelOffset(dmx, 0)).toBe(dmx)
+  })
+
+  it('offset verilince ilk N bayt karanlık kalır, veri sağa kayar', () => {
+    const dmx = Buffer.alloc(512)
+    dmx[0] = 255
+    dmx[1] = 128
+    const shifted = applyChannelOffset(dmx, 5)
+    expect(shifted.length).toBe(512)
+    expect([...shifted.subarray(0, 5)]).toEqual([0, 0, 0, 0, 0])
+    expect(shifted[5]).toBe(255)
+    expect(shifted[6]).toBe(128)
+  })
+
+  it('offset + veri 512\'yi aşarsa taşan kısım kırpılır', () => {
+    const dmx = Buffer.alloc(10).fill(9)
+    const shifted = applyChannelOffset(dmx, 510)
+    expect(shifted.length).toBe(512)
+    expect(shifted[510]).toBe(9)
+    expect(shifted[511]).toBe(9)
+  })
+
+  it('negatif offset dokunmadan orijinali döner', () => {
+    const dmx = Buffer.from([1, 2, 3])
+    expect(applyChannelOffset(dmx, -1)).toBe(dmx)
   })
 })
