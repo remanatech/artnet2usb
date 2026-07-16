@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AppState, RouteConfig, RouteStatus, SeenUniverse, UsbDevice } from '../shared/types'
+import { LOCALE_OPTIONS, makeTranslate, translateError, type Locale, type Translate } from './locales'
+import { useLocale } from './lib/useLocale'
 
 declare global {
   interface Window {
@@ -24,10 +26,12 @@ const api = {
 }
 
 export default function App() {
+  const [locale, setLocale] = useLocale()
+  const t = useMemo(() => makeTranslate(locale), [locale])
   const [state, setState] = useState<AppState | null>(null)
   const [preview, setPreview] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
-  // Tıkla-seç-eşleştir akışı: bir yayın + bir cihaz seçilir, tek tıkla rota kurulup başlar
+  // Click-select-pair flow: pick one broadcast + one device, one click builds and starts the route
   const [selUniverse, setSelUniverse] = useState<number | null>(null)
   const [selDevice, setSelDevice] = useState<string | null>(null)
   const [newProtocol, setNewProtocol] = useState<RouteConfig['protocol']>('enttec-pro')
@@ -37,14 +41,14 @@ export default function App() {
     try {
       setState(await api.state())
     } catch {
-      /* ana süreç henüz hazır değilse sonraki tur */
+      /* main process not ready yet — retried next tick */
     }
   }, [])
 
   useEffect(() => {
     void refresh()
-    const t = setInterval(() => void refresh(), 1500)
-    return () => clearInterval(t)
+    const timer = setInterval(() => void refresh(), 1500)
+    return () => clearInterval(timer)
   }, [refresh])
 
   const run = async (fn: () => Promise<AppState>) => {
@@ -52,7 +56,8 @@ export default function App() {
       setError(null)
       setState(await fn())
     } catch (e) {
-      setError(e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': Error: /, '') : String(e))
+      const raw = e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': Error: /, '') : String(e)
+      setError(translateError(t, raw))
     }
   }
 
@@ -66,11 +71,14 @@ export default function App() {
         <div className="flex items-center gap-2.5">
           <img src="./logo.svg" alt="" className="h-8 w-8" aria-hidden />
           <div className="flex items-baseline gap-2">
-            <span className="font-display text-lg font-bold uppercase tracking-tight text-slate-100">Relackout</span>
-            <span className="font-display text-sm font-bold uppercase tracking-tight text-primary">ArtNet 2 USB</span>
+            <span className="font-display text-lg font-bold uppercase tracking-tight text-slate-100">{t('appTitle')}</span>
+            <span className="font-display text-sm font-bold uppercase tracking-tight text-primary">{t('appSubtitle')}</span>
           </div>
         </div>
-        <SettingsBar settings={state.settings} onChange={(s) => void run(() => api.setSettings(s))} />
+        <div className="flex items-center gap-3">
+          <SettingsBar t={t} settings={state.settings} onChange={(s) => void run(() => api.setSettings(s))} />
+          <LanguageSwitcher t={t} locale={locale} onChange={setLocale} />
+        </div>
       </header>
 
       {error && (
@@ -83,6 +91,7 @@ export default function App() {
       <main className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto p-4 lg:grid-cols-2">
         <section className="flex min-h-0 flex-col gap-3">
           <UniversePanel
+            t={t}
             universes={state.universes}
             nodeCount={state.nodes.length}
             preview={preview}
@@ -93,16 +102,18 @@ export default function App() {
               void api.setPreview(u)
             }}
           />
-          {preview != null && <PreviewGrid universe={preview} onClose={() => { setPreview(null); void api.setPreview(null) }} />}
+          {preview != null && <PreviewGrid t={t} universe={preview} onClose={() => { setPreview(null); void api.setPreview(null) }} />}
         </section>
         <section className="flex min-h-0 flex-col gap-3">
           <DevicePanel
+            t={t}
             devices={state.devices}
             selected={selDevice}
             onSelect={(uid) => setSelDevice((cur) => (cur === uid ? null : uid))}
             onRename={(uid, name) => void run(() => api.rename(uid, name))}
           />
           <PairBar
+            t={t}
             universe={selUniverse}
             device={state.devices.find((d) => d.uid === selDevice) ?? null}
             protocol={newProtocol}
@@ -121,6 +132,7 @@ export default function App() {
             }}
           />
           <RoutePanel
+            t={t}
             routes={state.routes}
             devices={state.devices}
             onUpsert={(r) => void run(() => api.upsertRoute(r))}
@@ -133,7 +145,7 @@ export default function App() {
       </main>
 
       <footer className="flex items-center justify-between border-t border-border-dark px-4 py-2 text-[11px] text-slate-500">
-        <span>Ücretsiz araç — sahne otomasyonunun tamamı için</span>
+        <span>{t('footerTagline')}</span>
         <button
           className="font-bold text-primary hover:underline"
           onClick={() => void api.openExternal('https://relackout.com')}
@@ -145,23 +157,39 @@ export default function App() {
   )
 }
 
-function SettingsBar({ settings, onChange }: { settings: AppState['settings']; onChange: (s: AppState['settings']) => void }) {
+function LanguageSwitcher({ t, locale, onChange }: { t: Translate; locale: Locale; onChange: (l: Locale) => void }) {
+  return (
+    <select
+      className="input"
+      value={locale}
+      aria-label={t('languageLabel')}
+      onChange={(e) => onChange(e.target.value as Locale)}
+    >
+      {LOCALE_OPTIONS.map((opt) => (
+        <option key={opt.code} value={opt.code}>{opt.label}</option>
+      ))}
+    </select>
+  )
+}
+
+function SettingsBar({ t, settings, onChange }: { t: Translate; settings: AppState['settings']; onChange: (s: AppState['settings']) => void }) {
   return (
     <div className="flex items-center gap-2">
-      <span className="label">Sinyal kesilince</span>
+      <span className="label">{t('onSignalLoss')}</span>
       <select
         className="input"
         value={settings.onSignalLoss}
         onChange={(e) => onChange({ ...settings, onSignalLoss: e.target.value as 'hold' | 'blackout' })}
       >
-        <option value="hold">Son kareyi tut</option>
-        <option value="blackout">Karart</option>
+        <option value="hold">{t('holdLastFrame')}</option>
+        <option value="blackout">{t('blackout')}</option>
       </select>
     </div>
   )
 }
 
 function UniversePanel({
+  t,
   universes,
   nodeCount,
   preview,
@@ -169,6 +197,7 @@ function UniversePanel({
   onSelect,
   onPreview
 }: {
+  t: Translate
   universes: SeenUniverse[]
   nodeCount: number
   preview: number | null
@@ -179,15 +208,13 @@ function UniversePanel({
   return (
     <div className="card p-3">
       <div className="mb-2 flex items-center justify-between">
-        <p className="label">Art-Net Yayınları</p>
+        <p className="label">{t('universesTitle')}</p>
         <span className="text-[10px] text-slate-500">
-          {universes.length} yayın · {nodeCount} node
+          {t('universesCount', { n: universes.length, nodes: nodeCount })}
         </span>
       </div>
       {universes.length === 0 ? (
-        <p className="py-4 text-center text-xs text-slate-500">
-          Ağda Art-Net yayını görünmüyor — konsolunuz/yazılımınız UDP 6454'e yayın yapıyor mu?
-        </p>
+        <p className="py-4 text-center text-xs text-slate-500">{t('noUniverses')}</p>
       ) : (
         <div className="space-y-1">
           {universes.map((u) => {
@@ -196,7 +223,7 @@ function UniversePanel({
               <div
                 key={u.universe}
                 role="button"
-                title="Rota kurmak için seç"
+                title={t('selectForRoute')}
                 onClick={() => onSelect(u.universe)}
                 className={`flex cursor-pointer items-center justify-between rounded-lg border px-2.5 py-1.5 text-xs transition-colors ${
                   isSel
@@ -207,7 +234,7 @@ function UniversePanel({
                 <div className="flex items-center gap-3">
                   <span className="font-mono font-bold text-primary">U{u.universe}</span>
                   <span className="text-slate-400">{u.sourceIp}</span>
-                  {isSel && <span className="text-[10px] font-bold uppercase text-primary">seçili</span>}
+                  {isSel && <span className="text-[10px] font-bold uppercase text-primary">{t('selected')}</span>}
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-[10px] text-slate-500">{u.fps} fps</span>
@@ -218,7 +245,7 @@ function UniversePanel({
                       onPreview(preview === u.universe ? null : u.universe)
                     }}
                   >
-                    {preview === u.universe ? 'Kapat' : 'Önizle'}
+                    {preview === u.universe ? t('close') : t('preview')}
                   </button>
                 </div>
               </div>
@@ -230,8 +257,9 @@ function UniversePanel({
   )
 }
 
-/** Eşleştirme çubuğu: seçilen yayın + cihaz → tek tıkla rota kur ve başlat. */
+/** Pairing bar: pick a broadcast + device → one click builds and starts the route. */
 function PairBar({
+  t,
   universe,
   device,
   protocol,
@@ -240,6 +268,7 @@ function PairBar({
   onHz,
   onCreate
 }: {
+  t: Translate
   universe: number | null
   device: UsbDevice | null
   protocol: RouteConfig['protocol']
@@ -252,29 +281,29 @@ function PairBar({
   return (
     <div className={`card flex flex-wrap items-center gap-2 p-3 ${ready ? 'border-primary/50' : ''}`}>
       <span className={`font-mono text-xs font-bold ${universe != null ? 'text-primary' : 'text-slate-600'}`}>
-        {universe != null ? `U${universe}` : 'Yayın seçin'}
+        {universe != null ? `U${universe}` : t('selectBroadcast')}
       </span>
       <span className="text-slate-600">→</span>
       <span className={`min-w-0 max-w-[10rem] truncate text-xs font-medium ${device ? 'text-slate-200' : 'text-slate-600'}`}>
-        {device ? (device.name ?? device.manufacturer ?? device.path) : 'Cihaz seçin'}
+        {device ? (device.name ?? device.manufacturer ?? device.path) : t('selectDevice')}
       </span>
       <select className="input" value={protocol} onChange={(e) => onProtocol(e.target.value as RouteConfig['protocol'])}>
-        <option value="enttec-pro">Enttec Pro</option>
-        <option value="open-dmx">Open DMX (FTDI)</option>
+        <option value="enttec-pro">{t('protocolEnttec')}</option>
+        <option value="open-dmx">{t('protocolOpenDmx')}</option>
       </select>
       <select className="input" value={hz} onChange={(e) => onHz(Number(e.target.value))}>
         {HZ_OPTIONS.map((h) => (
           <option key={h} value={h}>{h} Hz</option>
         ))}
       </select>
-      <button className="btn-primary ml-auto" disabled={!ready} onClick={onCreate} title={ready ? '' : 'Önce bir yayın ve bir cihaz seçin'}>
-        ▶ Rota oluştur ve başlat
+      <button className="btn-primary ml-auto" disabled={!ready} onClick={onCreate} title={ready ? '' : t('selectBothFirst')}>
+        ▶ {t('createRoute')}
       </button>
     </div>
   )
 }
 
-function PreviewGrid({ universe, onClose }: { universe: number; onClose: () => void }) {
+function PreviewGrid({ t, universe, onClose }: { t: Translate; universe: number; onClose: () => void }) {
   const [frame, setFrame] = useState<number[]>(() => new Array(512).fill(0))
   useEffect(() => {
     return window.artnet2usb.onPreviewFrame((u, data) => {
@@ -285,17 +314,17 @@ function PreviewGrid({ universe, onClose }: { universe: number; onClose: () => v
   return (
     <div className="card flex min-h-0 flex-1 flex-col p-3">
       <div className="mb-2 flex items-center justify-between">
-        <p className="label">Önizleme — Universe {universe}</p>
+        <p className="label">{t('previewTitle', { u: universe })}</p>
         <div className="flex items-center gap-2 text-[10px] text-slate-500">
-          <span>{nonZero} aktif kanal</span>
-          <button className="btn px-2 py-0.5" onClick={onClose}>Kapat</button>
+          <span>{t('activeChannels', { n: nonZero })}</span>
+          <button className="btn px-2 py-0.5" onClick={onClose}>{t('close')}</button>
         </div>
       </div>
       <div className="grid flex-1 content-start gap-px overflow-y-auto" style={{ gridTemplateColumns: 'repeat(32, minmax(0, 1fr))' }}>
         {frame.map((v, i) => (
           <div
             key={i}
-            title={`Kanal ${i + 1}: ${v}`}
+            title={t('channelTooltip', { n: i + 1, v })}
             className="aspect-square rounded-[2px]"
             style={{ backgroundColor: v > 0 ? `rgba(37, 185, 244, ${0.15 + (v / 255) * 0.85})` : 'rgba(148, 163, 184, 0.08)' }}
           />
@@ -306,11 +335,13 @@ function PreviewGrid({ universe, onClose }: { universe: number; onClose: () => v
 }
 
 function DevicePanel({
+  t,
   devices,
   selected,
   onSelect,
   onRename
 }: {
+  t: Translate
   devices: UsbDevice[]
   selected: string | null
   onSelect: (uid: string) => void
@@ -325,18 +356,18 @@ function DevicePanel({
   return (
     <div className="card p-3">
       <div className="mb-2 flex items-center justify-between">
-        <p className="label">USB Cihazları</p>
-        <span className="text-[10px] text-slate-500">{devices.filter((d) => d.connected).length} bağlı</span>
+        <p className="label">{t('devicesTitle')}</p>
+        <span className="text-[10px] text-slate-500">{t('connectedCount', { n: devices.filter((d) => d.connected).length })}</span>
       </div>
       {devices.length === 0 ? (
-        <p className="py-4 text-center text-xs text-slate-500">USB seri cihaz bulunamadı.</p>
+        <p className="py-4 text-center text-xs text-slate-500">{t('noDevices')}</p>
       ) : (
         <div className="space-y-1">
           {devices.map((d) => (
             <div
               key={d.uid}
               role="button"
-              title={d.connected ? 'Rota kurmak için seç' : 'Cihaz takılı değil'}
+              title={d.connected ? t('selectForRoute') : t('errorDeviceNotConnected')}
               onClick={() => d.connected && onSelect(d.uid)}
               className={`flex items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5 text-xs transition-colors ${
                 selected === d.uid
@@ -352,7 +383,7 @@ function DevicePanel({
                     ref={inputRef}
                     className="input w-full"
                     value={draft}
-                    placeholder="Cihaz adı"
+                    placeholder={t('namePlaceholder')}
                     onChange={(e) => setDraft(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
@@ -366,25 +397,25 @@ function DevicePanel({
                 ) : (
                   <>
                     <p className="truncate font-medium text-slate-200">
-                      {d.name ?? d.manufacturer ?? 'Adsız cihaz'}
-                      {!d.connected && <span className="ml-1.5 text-[10px] text-slate-500">(takılı değil)</span>}
+                      {d.name ?? d.manufacturer ?? t('unnamedDevice')}
+                      {!d.connected && <span className="ml-1.5 text-[10px] text-slate-500">{t('notConnectedBadge')}</span>}
                     </p>
                     <p className="truncate font-mono text-[10px] text-slate-500">
-                      {d.connected ? d.path : ''} {d.serialNumber ? `· SN ${d.serialNumber}` : ''}
+                      {d.connected ? d.path : ''} {d.serialNumber ? `· ${t('serialLabel', { sn: d.serialNumber })}` : ''}
                     </p>
                   </>
                 )}
               </div>
               <button
                 className="btn shrink-0 px-2 py-1"
-                title="Yeniden adlandır — ad cihaz kimliğine kalıcı bağlanır"
+                title={t('renameButtonTooltip')}
                 onClick={(e) => {
                   e.stopPropagation()
                   setEditing(d.uid)
                   setDraft(d.name ?? '')
                 }}
               >
-                Adlandır
+                {t('rename')}
               </button>
             </div>
           ))}
@@ -397,6 +428,7 @@ function DevicePanel({
 const HZ_OPTIONS = [10, 20, 25, 30, 35, 40, 44]
 
 function RoutePanel({
+  t,
   routes,
   devices,
   onUpsert,
@@ -405,6 +437,7 @@ function RoutePanel({
   onStop,
   onFreeze
 }: {
+  t: Translate
   routes: RouteStatus[]
   devices: UsbDevice[]
   onUpsert: (r: RouteConfig) => void
@@ -420,13 +453,11 @@ function RoutePanel({
   return (
     <div className="card p-3">
       <div className="mb-2 flex items-center justify-between">
-        <p className="label">Rotalar</p>
-        <span className="text-[10px] text-slate-500">{routes.filter((r) => r.active).length} yayında</span>
+        <p className="label">{t('routesTitle')}</p>
+        <span className="text-[10px] text-slate-500">{t('liveCount', { n: routes.filter((r) => r.active).length })}</span>
       </div>
       {routes.length === 0 ? (
-        <p className="py-4 text-center text-xs text-slate-500">
-          Henüz rota yok — üstte bir yayın ve bir cihaz seçip "Rota oluştur ve başlat".
-        </p>
+        <p className="py-4 text-center text-xs text-slate-500">{t('noRoutes')}</p>
       ) : (
         <div className="space-y-1.5">
           {routes.map((r) => (
@@ -445,8 +476,8 @@ function RoutePanel({
                 <span className="text-slate-600">→</span>
                 <span className="min-w-0 max-w-[10rem] truncate font-medium text-slate-200">{nameOf(r.deviceUid)}</span>
                 <select className="input" value={r.protocol} onChange={(e) => onUpsert({ ...r, protocol: e.target.value as RouteConfig['protocol'] })}>
-                  <option value="enttec-pro">Enttec Pro</option>
-                  <option value="open-dmx">Open DMX (FTDI)</option>
+                  <option value="enttec-pro">{t('protocolEnttec')}</option>
+                  <option value="open-dmx">{t('protocolOpenDmx')}</option>
                 </select>
                 <select className="input" value={r.hz} onChange={(e) => onUpsert({ ...r, hz: Number(e.target.value) })}>
                   {HZ_OPTIONS.map((h) => (
@@ -457,29 +488,29 @@ function RoutePanel({
                   {r.active && (
                     <button
                       className={`btn px-2 py-1 ${r.frozen ? 'border-sky-300/70 bg-sky-300/10 text-sky-300' : ''}`}
-                      title={r.frozen ? 'Canlı veriye dön' : 'O anki kareyi dondur — çıkış sabit kalır'}
+                      title={r.frozen ? t('resumeTooltip') : t('freezeTooltip')}
                       onClick={() => onFreeze(r.id)}
                     >
-                      {r.frozen ? '❄ Devam et' : '❄ Freeze'}
+                      {r.frozen ? `❄ ${t('resume')}` : `❄ ${t('freeze')}`}
                     </button>
                   )}
                   {r.active ? (
                     <button className="btn px-2 py-1 text-red-300 hover:border-red-400/60 hover:text-red-300" onClick={() => onStop(r.id)}>
-                      ■ Durdur
+                      ■ {t('stop')}
                     </button>
                   ) : (
                     <button className="btn-primary px-2 py-1" onClick={() => onStart(r.id)}>
-                      ▶ Başlat
+                      ▶ {t('start')}
                     </button>
                   )}
-                  <button className="btn px-2 py-1" title="Rotayı sil" onClick={() => onRemove(r.id)}>✕</button>
+                  <button className="btn px-2 py-1" title={t('deleteRouteTooltip')} onClick={() => onRemove(r.id)}>✕</button>
                 </div>
               </div>
               <div className="mt-1 flex items-center gap-2 text-[10px]">
-                {r.active && !r.frozen && <span className="font-bold text-emerald-400">● YAYINDA</span>}
-                {r.active && r.frozen && <span className="font-bold text-sky-300">❄ DONDURULDU — çıkış sabit</span>}
-                {r.error && <span className="text-red-400">{r.error}</span>}
-                {r.active && <span className="font-mono text-slate-500">{r.framesSent} kare</span>}
+                {r.active && !r.frozen && <span className="font-bold text-emerald-400">● {t('liveBadge')}</span>}
+                {r.active && r.frozen && <span className="font-bold text-sky-300">❄ {t('frozenBadge')}</span>}
+                {r.error && <span className="text-red-400">{translateError(t, r.error)}</span>}
+                {r.active && <span className="font-mono text-slate-500">{t('framesCount', { n: r.framesSent })}</span>}
               </div>
             </div>
           ))}

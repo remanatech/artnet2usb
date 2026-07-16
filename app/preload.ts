@@ -15,7 +15,7 @@ contextBridge.exposeInMainWorld('artnet2usb', {
       'preview:set',
       'app:openExternal'
     ]
-    if (!allowed.includes(channel)) throw new Error(`İzinsiz kanal: ${channel}`)
+    if (!allowed.includes(channel)) throw new Error(`Unauthorized channel: ${channel}`)
     return ipcRenderer.invoke(channel, ...args)
   },
   onPreviewFrame: (cb: (universe: number, data: number[]) => void) => {

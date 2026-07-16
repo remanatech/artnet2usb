@@ -96,7 +96,7 @@ export class DmxOutputEngine {
     await this.stop(route.id)
     const devices = await this.listDevices()
     const dev = devices.find((d) => d.uid === route.deviceUid)
-    if (!dev) throw new Error('Cihaz takılı değil')
+    if (!dev) throw new Error('device_not_connected')
     const baud = route.protocol === 'open-dmx' ? 250000 : 57600
     const port = new SerialPort({
       path: dev.path,
@@ -116,7 +116,7 @@ export class DmxOutputEngine {
       out.error = err.message
     })
     port.on('close', () => {
-      out.error = out.error ?? 'Port kapandı'
+      out.error = out.error ?? 'port_closed'
     })
     this.active.set(route.id, out)
   }
