@@ -166,10 +166,15 @@ export class DmxOutputEngine {
           out.port.write(buildEnttecFrame(dmx), (err) => (err ? reject(err) : resolve()))
         )
       } else {
-        // Open DMX: break (~1ms) + MAB + kare. serialport set({brk}) ile.
+        // Open DMX: break (~1ms) + MAB (Mark After Break) + kare. serialport set({brk}) ile.
+        // MAB'siz (break biter bitmez write) bazı FTDI+alıcı kombinasyonlarında break→data
+        // geçişindeki baytın kaybolmasına/kaymasına yol açabiliyor — sahada tüm kanalların
+        // tutarlı biçimde 1 kayması olarak gözlendi (start code veya kanal 1 baytının
+        // break geçişinde yutulması ile açıklanabilir). DMX512 min MAB 12µs; 1ms güvenli pay.
         await new Promise<void>((resolve, reject) => out.port.set({ brk: true }, (e) => (e ? reject(e) : resolve())))
         await new Promise((r) => setTimeout(r, 1))
         await new Promise<void>((resolve, reject) => out.port.set({ brk: false }, (e) => (e ? reject(e) : resolve())))
+        await new Promise((r) => setTimeout(r, 1))
         const frame = Buffer.alloc(513)
         frame[0] = 0
         dmx.copy(frame, 1, 0, Math.min(dmx.length, 512))
