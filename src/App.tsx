@@ -28,6 +28,11 @@ const api = {
 export default function App() {
   const [locale, setLocale] = useLocale()
   const t = useMemo(() => makeTranslate(locale), [locale])
+  // CSS text-transform:uppercase is locale-sensitive (e.g. Turkish dotted İ) —
+  // without this, an OS set to Turkish mangles English "SIGNAL" into "SİGNAL"
+  useEffect(() => {
+    document.documentElement.lang = locale
+  }, [locale])
   const [state, setState] = useState<AppState | null>(null)
   const [preview, setPreview] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)

@@ -1,6 +1,7 @@
 node_modules/
 dist/
 dist-cli/
+dist-standalone/
 release/
 *.log
 .DS_Store
