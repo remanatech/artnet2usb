@@ -4,11 +4,12 @@ import { defaultConfigDir } from './configDir'
 import { startBridge } from './bridge'
 import { ArtNetListener } from '../app/artnet'
 import { DmxOutputEngine } from '../app/dmxOutput'
-import { pickAutoRoute } from './autoRoute'
+import { pickAutoRoute, resolveAutoRouteFields } from './autoRoute'
 import { runDoctorChecks } from './doctor'
 import { registerRouteCommands } from './routeCommands'
 import { registerServiceCommands } from './serviceInstall'
 import type { OutputProtocol, RouteConfig } from '../shared/types'
+import type { Command } from 'commander'
 
 // commander + @clack/prompts saf ESM paketler ("type":"module", sadece .mjs) — bu CLI
 // CommonJS'e derleniyor (app/artnet.ts + app/dmxOutput.ts'i DEĞİŞTİRMEDEN, extensionless
@@ -106,7 +107,7 @@ async function runBridge(configDir: string, opts: RunOpts = {}): Promise<void> {
 
 async function runAuto(
   configDir: string,
-  opts: { protocol: OutputProtocol; hz: number; channelOffset: number; start: boolean; json?: boolean }
+  opts: { protocol?: OutputProtocol; hz?: number; channelOffset?: number; start: boolean; json?: boolean }
 ): Promise<void> {
   const store = new Store(configDir)
   const listener = new ArtNetListener()
@@ -128,18 +129,19 @@ async function runAuto(
     return
   }
 
+  const existing = store.routes.find((r) => r.id === 'auto')
+  const { protocol, hz, channelOffset } = resolveAutoRouteFields(existing, opts)
+
   store.upsertRoute({
     id: 'auto',
     universe: result.universe,
     deviceUid: result.deviceUid,
-    protocol: opts.protocol,
-    hz: opts.hz,
-    channelOffset: opts.channelOffset,
+    protocol,
+    hz,
+    channelOffset,
     enabled: true
   })
-  console.log(
-    `Route saved: universe ${result.universe} -> ${result.deviceUid} (${opts.protocol}, ${opts.hz}Hz${opts.channelOffset ? `, offset ${opts.channelOffset}` : ''})`
-  )
+  console.log(`Route saved: universe ${result.universe} -> ${result.deviceUid} (${protocol}, ${hz}Hz${channelOffset ? `, offset ${channelOffset}` : ''})`)
 
   if (opts.start) await runBridge(configDir, { json: opts.json })
 }
@@ -354,7 +356,7 @@ async function main(): Promise<void> {
     .option('--config <dir>', 'Config directory override (default: shared with the desktop app)')
     .option('--no-start', 'Only detect and save the route, do not start the bridge')
     .option('--json', 'Emit newline-delimited JSON status instead of human-readable text')
-    .action(async (opts: { protocol: string; hz: string; channelOffset: string; config?: string; start: boolean; json?: boolean }) => {
+    .action(async (opts: { protocol: string; hz: string; channelOffset: string; config?: string; start: boolean; json?: boolean }, command: Command) => {
       const protocol = opts.protocol as OutputProtocol
       if (protocol !== 'enttec-pro' && protocol !== 'open-dmx') {
         console.error(`Invalid --protocol: ${opts.protocol} (expected enttec-pro or open-dmx)`)
@@ -373,7 +375,16 @@ async function main(): Promise<void> {
         process.exitCode = 1
         return
       }
-      await runAuto(opts.config ?? defaultConfigDir(), { protocol, hz, channelOffset, start: opts.start, json: opts.json })
+      // Bayrak elle verilmediyse (sadece commander varsayılanı uygulandıysa) undefined geçilir —
+      // runAuto() bu durumda mevcut "auto" rotasının değerini korur (bkz. runAuto yorumu).
+      const explicit = (key: string) => command.getOptionValueSource(key) === 'cli'
+      await runAuto(opts.config ?? defaultConfigDir(), {
+        protocol: explicit('protocol') ? protocol : undefined,
+        hz: explicit('hz') ? hz : undefined,
+        channelOffset: explicit('channelOffset') ? channelOffset : undefined,
+        start: opts.start,
+        json: opts.json
+      })
     })
 
   program

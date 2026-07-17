@@ -1,4 +1,4 @@
-import type { SeenUniverse, UsbDevice } from '../shared/types'
+import type { OutputProtocol, RouteConfig, SeenUniverse, UsbDevice } from '../shared/types'
 
 export interface AutoRouteMatch {
   universe: number
@@ -33,4 +33,22 @@ export function pickAutoRoute(universes: SeenUniverse[], devices: UsbDevice[]): 
     return { error: `${devices.length} USB devices detected (${list}) — "auto" only handles a single device. Use "configure" to pick one manually.` }
   }
   return { universe: universes[0].universe, deviceUid: devices[0].uid }
+}
+
+/**
+ * "auto" yalnızca universe+deviceUid'i gerçekten otomatik tespit eder.
+ * protocol/hz/channelOffset için elle verilmiş bir CLI bayrağı yoksa (opts alanı
+ * undefined), önceden kaydedilmiş "auto" rotasının değeri korunur — aksi halde
+ * her yeniden başlatmada (systemd Restart=always, açılış vb.) manuel
+ * ayarlanmış bir channelOffset/protokol sessizce varsayılana sıfırlanır.
+ */
+export function resolveAutoRouteFields(
+  existing: RouteConfig | undefined,
+  opts: { protocol?: OutputProtocol; hz?: number; channelOffset?: number }
+): { protocol: OutputProtocol; hz: number; channelOffset: number } {
+  return {
+    protocol: opts.protocol ?? existing?.protocol ?? 'open-dmx',
+    hz: opts.hz ?? existing?.hz ?? 40,
+    channelOffset: opts.channelOffset ?? existing?.channelOffset ?? 0
+  }
 }
