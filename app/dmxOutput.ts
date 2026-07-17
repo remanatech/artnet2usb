@@ -25,15 +25,26 @@ export function buildEnttecFrame(dmx: Buffer): Buffer {
 }
 
 /**
- * Kanal başlangıç (patch) offset'i uygular: ilk `offset` bayt karanlık (0)
- * kalır, kaynak veri offset'ten itibaren yazılır (sağa kayar). offset<=0 ise
- * dokunmadan orijinal buffer'ı döner. (Saf — test edilir.)
+ * Kanal başlangıç (patch) offset'i uygular — iki yönlü:
+ *  - offset > 0: ilk `offset` bayt karanlık (0) kalır, kaynak veri offset'ten
+ *    itibaren yazılır (cihaz tarafı sağa/geç kayar — cihazın kanal 1'i kaynağın
+ *    daha geç bir kanalına denk gelir).
+ *  - offset < 0: kaynağın ilk |offset| kanalı atlanır, cihaza kaynağın
+ *    (|offset|+1). kanalından itibaren yazılır (kaynak tarafı sağa kayar —
+ *    cihazın kanal 1'i kaynağın daha erken/düşük bir kanalına denk gelir).
+ * offset=0 ise dokunmadan orijinal buffer'ı döner. (Saf — test edilir.)
  */
 export function applyChannelOffset(dmx: Buffer, offset: number): Buffer {
-  if (!offset || offset <= 0) return dmx
+  if (!offset) return dmx
   const shifted = Buffer.alloc(512)
-  const len = Math.min(dmx.length, 512 - offset)
-  if (len > 0) dmx.copy(shifted, offset, 0, len)
+  if (offset > 0) {
+    const len = Math.min(dmx.length, 512 - offset)
+    if (len > 0) dmx.copy(shifted, offset, 0, len)
+  } else {
+    const skip = -offset
+    const len = Math.max(Math.min(dmx.length - skip, 512), 0)
+    if (len > 0) dmx.copy(shifted, 0, skip, skip + len)
+  }
   return shifted
 }
 

@@ -58,4 +58,13 @@ describe('runDoctorChecks', () => {
   it('channelOffset tanımsızsa (varsayılan 0) sorun bildirmez', () => {
     expect(runDoctorChecks([route()], [device('dev-1')])).toEqual([])
   })
+
+  it('geçerli negatif channelOffset sorun bildirmez', () => {
+    expect(runDoctorChecks([route({ channelOffset: -3 })], [device('dev-1')])).toEqual([])
+  })
+
+  it('aralık dışı negatif channelOffset değerini hata olarak bildirir', () => {
+    const issues = runDoctorChecks([route({ channelOffset: -600 })], [device('dev-1')])
+    expect(issues.some((i) => i.level === 'error' && /channelOffset/.test(i.message))).toBe(true)
+  })
 })

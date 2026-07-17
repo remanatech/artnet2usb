@@ -4,7 +4,7 @@ import { defaultConfigDir } from './configDir'
 import type { OutputProtocol, RouteConfig } from '../shared/types'
 
 function formatRoute(r: RouteConfig): string {
-  const offset = r.channelOffset ? `, offset ${r.channelOffset}` : ''
+  const offset = r.channelOffset ? `, offset ${r.channelOffset > 0 ? '+' : ''}${r.channelOffset}` : ''
   return `  ${r.enabled ? '●' : '○'} [${r.id}] universe ${r.universe} -> ${r.deviceUid} (${r.protocol}, ${r.hz}Hz${offset})`
 }
 
@@ -23,7 +23,11 @@ export function registerRouteCommands(program: Command): void {
     .requiredOption('--device <uid>', 'Target device uid (see list-ports)')
     .option('--protocol <protocol>', 'enttec-pro or open-dmx', 'open-dmx')
     .option('--hz <hz>', 'Output rate in Hz (1-44)', '40')
-    .option('--channel-offset <n>', 'Channel start (patch) offset within the universe, 0-511 — leading N device channels stay dark', '0')
+    .option(
+      '--channel-offset <n>',
+      'Channel start (patch) offset, -511 to 511. Positive: leading N device channels stay dark. Negative: skip the first N source channels.',
+      '0'
+    )
     .option('--disabled', 'Save the route disabled (not started automatically)')
     .option('--id <id>', 'Route id — reuses/updates an existing route if it already exists')
     .option('--config <dir>', 'Config directory override (default: shared with the desktop app)')
@@ -51,8 +55,8 @@ export function registerRouteCommands(program: Command): void {
           return
         }
         const channelOffset = Number(opts.channelOffset)
-        if (!Number.isInteger(channelOffset) || channelOffset < 0 || channelOffset > 511) {
-          console.error(`Invalid --channel-offset: ${opts.channelOffset} (expected an integer between 0 and 511)`)
+        if (!Number.isInteger(channelOffset) || channelOffset < -511 || channelOffset > 511) {
+          console.error(`Invalid --channel-offset: ${opts.channelOffset} (expected an integer between -511 and 511)`)
           process.exitCode = 1
           return
         }

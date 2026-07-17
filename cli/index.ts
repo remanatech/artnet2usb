@@ -141,7 +141,9 @@ async function runAuto(
     channelOffset,
     enabled: true
   })
-  console.log(`Route saved: universe ${result.universe} -> ${result.deviceUid} (${protocol}, ${hz}Hz${channelOffset ? `, offset ${channelOffset}` : ''})`)
+  console.log(
+    `Route saved: universe ${result.universe} -> ${result.deviceUid} (${protocol}, ${hz}Hz${channelOffset ? `, offset ${channelOffset > 0 ? '+' : ''}${channelOffset}` : ''})`
+  )
 
   if (opts.start) await runBridge(configDir, { json: opts.json })
 }
@@ -238,11 +240,11 @@ async function addRouteFlow(clack: ClackModule, store: Store): Promise<void> {
   if (clack.isCancel(hzStr)) return
 
   const channelOffsetStr = await clack.text({
-    message: 'Channel start (patch) offset, 0-511 — leading device channels stay dark',
+    message: 'Channel start (patch) offset, -511 to 511 (positive: delay device output; negative: skip leading source channels)',
     initialValue: '0',
     validate: (v) => {
       const n = Number(v)
-      return Number.isInteger(n) && n >= 0 && n <= 511 ? undefined : 'Enter an integer between 0 and 511'
+      return Number.isInteger(n) && n >= -511 && n <= 511 ? undefined : 'Enter an integer between -511 and 511'
     }
   })
   if (clack.isCancel(channelOffsetStr)) return
@@ -278,7 +280,10 @@ async function runConfigure(clack: ClackModule, configDir: string): Promise<void
     if (routes.length > 0) {
       clack.log.info(
         `Current routes:\n${routes
-          .map((r) => `  ${r.enabled ? '●' : '○'} universe ${r.universe} -> ${r.deviceUid} (${r.protocol}, ${r.hz}Hz${r.channelOffset ? `, offset ${r.channelOffset}` : ''})`)
+          .map(
+            (r) =>
+              `  ${r.enabled ? '●' : '○'} universe ${r.universe} -> ${r.deviceUid} (${r.protocol}, ${r.hz}Hz${r.channelOffset ? `, offset ${r.channelOffset > 0 ? '+' : ''}${r.channelOffset}` : ''})`
+          )
           .join('\n')}`
       )
     } else {
@@ -352,7 +357,11 @@ async function main(): Promise<void> {
     .description('Auto-detect a single Art-Net universe and USB device, save the route, and start it (unless --no-start)')
     .option('--protocol <protocol>', 'enttec-pro or open-dmx', 'open-dmx')
     .option('--hz <hz>', 'Output rate in Hz (1-44)', '40')
-    .option('--channel-offset <n>', 'Channel start (patch) offset within the universe, 0-511 — leading N device channels stay dark', '0')
+    .option(
+      '--channel-offset <n>',
+      'Channel start (patch) offset, -511 to 511. Positive: leading N device channels stay dark. Negative: skip the first N source channels.',
+      '0'
+    )
     .option('--config <dir>', 'Config directory override (default: shared with the desktop app)')
     .option('--no-start', 'Only detect and save the route, do not start the bridge')
     .option('--json', 'Emit newline-delimited JSON status instead of human-readable text')
@@ -370,8 +379,8 @@ async function main(): Promise<void> {
         return
       }
       const channelOffset = Number(opts.channelOffset)
-      if (!Number.isInteger(channelOffset) || channelOffset < 0 || channelOffset > 511) {
-        console.error(`Invalid --channel-offset: ${opts.channelOffset} (expected an integer between 0 and 511)`)
+      if (!Number.isInteger(channelOffset) || channelOffset < -511 || channelOffset > 511) {
+        console.error(`Invalid --channel-offset: ${opts.channelOffset} (expected an integer between -511 and 511)`)
         process.exitCode = 1
         return
       }

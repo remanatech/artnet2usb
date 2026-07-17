@@ -43,9 +43,14 @@ export interface RouteConfig {
   hz: number
   enabled: boolean
   /**
-   * Kanal başlangıç (patch) offset'i, 0-indexed. Varsayılan 0 (kayma yok).
-   * N verilirse: cihazın ilk N kanalı karanlık kalır, universe'in kanal 1'i
-   * cihazın kanal N+1'ine yazılır (tüm veri sağa kayar).
+   * Kanal başlangıç (patch) offset'i, -511..511. Varsayılan 0 (kayma yok).
+   *  - Pozitif N: cihazın ilk N kanalı karanlık kalır, universe'in kanal 1'i
+   *    cihazın kanal N+1'ine yazılır (cihaz tarafı geç kalır).
+   *  - Negatif N: universe'in ilk |N| kanalı atlanır, cihazın kanal 1'i
+   *    universe'in (|N|+1). kanalına yazılır (kaynak tarafı geç kalır).
+   * Dış donanımın (fikstür patch adresi, konsol kanal etiketleme farkı vb.)
+   * kendi 1-kanallık kaymasını yazılımdan telafi etmek için — her iki yön de
+   * pratikte gerekli olabiliyor, tek yönlü olmadığı sahada doğrulandı.
    */
   channelOffset?: number
 }

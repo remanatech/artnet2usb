@@ -114,8 +114,30 @@ describe('applyChannelOffset (kanal başlangıç/patch offset)', () => {
     expect(shifted[511]).toBe(9)
   })
 
-  it('negatif offset dokunmadan orijinali döner', () => {
-    const dmx = Buffer.from([1, 2, 3])
-    expect(applyChannelOffset(dmx, -1)).toBe(dmx)
+  it('negatif offset: kaynağın ilk |N| kanalı atlanır, veri sola kayar', () => {
+    const dmx = Buffer.alloc(512)
+    dmx[0] = 111 // kaynak kanal 1
+    dmx[1] = 222 // kaynak kanal 2
+    dmx[2] = 33 // kaynak kanal 3
+    const shifted = applyChannelOffset(dmx, -1)
+    expect(shifted.length).toBe(512)
+    expect(shifted[0]).toBe(222) // cihaz kanal 1 = kaynak kanal 2
+    expect(shifted[1]).toBe(33) // cihaz kanal 2 = kaynak kanal 3
+  })
+
+  it('negatif offset: son |N| cihaz kanalı karanlık kalır (kaynakta veri kalmadı)', () => {
+    const dmx = Buffer.alloc(512).fill(7)
+    const shifted = applyChannelOffset(dmx, -3)
+    expect(shifted[509]).toBe(0)
+    expect(shifted[510]).toBe(0)
+    expect(shifted[511]).toBe(0)
+    expect(shifted[508]).toBe(7)
+  })
+
+  it('offset ile negatif offset birbirini geri alır (round-trip)', () => {
+    const dmx = Buffer.alloc(512)
+    dmx[0] = 42
+    const shiftedThenBack = applyChannelOffset(applyChannelOffset(dmx, 4), -4)
+    expect(shiftedThenBack[0]).toBe(42)
   })
 })

@@ -23,8 +23,8 @@ export function runDoctorChecks(routes: RouteConfig[], devices: UsbDevice[]): Do
       issues.push({ level: 'error', message: `Route "${r.id}": hz ${r.hz} is out of range (1-44).` })
     }
     const offset = r.channelOffset ?? 0
-    if (!Number.isInteger(offset) || offset < 0 || offset > 511) {
-      issues.push({ level: 'error', message: `Route "${r.id}": channelOffset ${offset} is out of range (0-511).` })
+    if (!Number.isInteger(offset) || offset < -511 || offset > 511) {
+      issues.push({ level: 'error', message: `Route "${r.id}": channelOffset ${offset} is out of range (-511 to 511).` })
     }
   }
 
