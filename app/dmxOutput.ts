@@ -167,10 +167,10 @@ export class DmxOutputEngine {
         )
       } else {
         // Open DMX: break (~1ms) + MAB (Mark After Break) + kare. serialport set({brk}) ile.
-        // NOT: flush() denendi ama sahada aralıklı titremeye (kanal N açıkken N-1'in anlık
-        // yanıp sönmesi) yol açtığı gözlendi — geri alındı. 1-kanallık kayma sorunu hâlâ kod
-        // dışı bir sebepten (donanım/timing) kaynaklanıyor olabilir, daha fazla spekülatif
-        // low-level değişiklik canlı yayında güvenli değil.
+        // NOT: flush() break→data arasında denendi ama titremeye yol açtı (geri alındı).
+        // Bu sürümde flush() döngünün EN BAŞINA taşındı — bir önceki turdan kalan
+        // artık baytı, mevcut break/MAB zamanlamasına dokunmadan temizlemeyi dener.
+        await new Promise<void>((resolve, reject) => out.port.flush((e) => (e ? reject(e) : resolve())))
         await new Promise<void>((resolve, reject) => out.port.set({ brk: true }, (e) => (e ? reject(e) : resolve())))
         await new Promise((r) => setTimeout(r, 1))
         await new Promise<void>((resolve, reject) => out.port.set({ brk: false }, (e) => (e ? reject(e) : resolve())))
