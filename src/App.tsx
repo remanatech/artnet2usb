@@ -34,7 +34,7 @@ export default function App() {
   // Click-select-pair flow: pick one broadcast + one device, one click builds and starts the route
   const [selUniverse, setSelUniverse] = useState<number | null>(null)
   const [selDevice, setSelDevice] = useState<string | null>(null)
-  const [newProtocol, setNewProtocol] = useState<RouteConfig['protocol']>('enttec-pro')
+  const [newProtocol, setNewProtocol] = useState<RouteConfig['protocol']>('open-dmx')
   const [newHz, setNewHz] = useState(40)
 
   const refresh = useCallback(async () => {
