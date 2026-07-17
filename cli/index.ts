@@ -326,7 +326,7 @@ async function main(): Promise<void> {
   program
     .name('artnet2usb-cli')
     .description('Headless Art-Net -> USB DMX bridge (shares config with the desktop app)')
-    .version('0.1.0')
+    .version('0.2.0')
 
   program
     .command('list-ports')
