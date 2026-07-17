@@ -44,13 +44,13 @@ export interface RouteConfig {
   enabled: boolean
   /**
    * Kanal başlangıç (patch) offset'i, -511..511. Varsayılan 0 (kayma yok).
-   *  - Pozitif N: cihazın ilk N kanalı karanlık kalır, universe'in kanal 1'i
-   *    cihazın kanal N+1'ine yazılır (cihaz tarafı geç kalır).
-   *  - Negatif N: universe'in ilk |N| kanalı atlanır, cihazın kanal 1'i
-   *    universe'in (|N|+1). kanalına yazılır (kaynak tarafı geç kalır).
+   * Universe'i 512 kanal içinde DAİRESEL kaydırır — veri kaybı olmaz, bir
+   * uçtan taşan kanallar diğer uca sarar (ör. offset=-1: kaynak kanal 1
+   * atılmaz, cihazın kanal 512'sine sarar; kaynak kanal 2 → cihaz kanal 1).
    * Dış donanımın (fikstür patch adresi, konsol kanal etiketleme farkı vb.)
-   * kendi 1-kanallık kaymasını yazılımdan telafi etmek için — her iki yön de
-   * pratikte gerekli olabiliyor, tek yönlü olmadığı sahada doğrulandı.
+   * kendi kaymasını yazılımdan telafi etmek için — sahada hem pozitif hem
+   * negatif yönün gerekebildiği, veri kaybının kabul edilemez olduğu
+   * doğrulandı (dotka@192.168.1.242 canlı testleri).
    */
   channelOffset?: number
 }

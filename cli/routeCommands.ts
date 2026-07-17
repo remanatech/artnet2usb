@@ -25,7 +25,7 @@ export function registerRouteCommands(program: Command): void {
     .option('--hz <hz>', 'Output rate in Hz (1-44)', '40')
     .option(
       '--channel-offset <n>',
-      'Channel start (patch) offset, -511 to 511. Positive: leading N device channels stay dark. Negative: skip the first N source channels.',
+      'Channel start (patch) offset, -511 to 511. Rotates the universe circularly — no data is dropped, channels that fall off one end wrap to the other.',
       '0'
     )
     .option('--disabled', 'Save the route disabled (not started automatically)')

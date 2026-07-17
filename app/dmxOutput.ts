@@ -25,25 +25,21 @@ export function buildEnttecFrame(dmx: Buffer): Buffer {
 }
 
 /**
- * Kanal başlangıç (patch) offset'i uygular — iki yönlü:
- *  - offset > 0: ilk `offset` bayt karanlık (0) kalır, kaynak veri offset'ten
- *    itibaren yazılır (cihaz tarafı sağa/geç kayar — cihazın kanal 1'i kaynağın
- *    daha geç bir kanalına denk gelir).
- *  - offset < 0: kaynağın ilk |offset| kanalı atlanır, cihaza kaynağın
- *    (|offset|+1). kanalından itibaren yazılır (kaynak tarafı sağa kayar —
- *    cihazın kanal 1'i kaynağın daha erken/düşük bir kanalına denk gelir).
+ * Kanal başlangıç (patch) offset'i uygular — dairesel kaydırma (rotate), veri
+ * KAYBI OLMAZ: 512 kanallık buffer'ın tamamı korunur, sadece pozisyonlar
+ * dairesel olarak kayar.
+ *  - offset > 0: kaynak kanal 1..512 sırasıyla cihaz kanalı (1+offset)..'a
+ *    yazılır; buffer sonundan taşan `offset` kanal başa (cihaz kanalı 1..offset'e) sarar.
+ *  - offset < 0: kaynağın ilk |offset| kanalı cihaz buffer'ının SONUNA sarar
+ *    (atılmaz), kaynak kanal (|offset|+1) cihazın kanal 1'ine yazılır.
  * offset=0 ise dokunmadan orijinal buffer'ı döner. (Saf — test edilir.)
  */
 export function applyChannelOffset(dmx: Buffer, offset: number): Buffer {
   if (!offset) return dmx
   const shifted = Buffer.alloc(512)
-  if (offset > 0) {
-    const len = Math.min(dmx.length, 512 - offset)
-    if (len > 0) dmx.copy(shifted, offset, 0, len)
-  } else {
-    const skip = -offset
-    const len = Math.max(Math.min(dmx.length - skip, 512), 0)
-    if (len > 0) dmx.copy(shifted, 0, skip, skip + len)
+  for (let i = 0; i < 512; i++) {
+    const srcIndex = ((((i - offset) % 512) + 512) % 512)
+    shifted[i] = srcIndex < dmx.length ? dmx[srcIndex] : 0
   }
   return shifted
 }

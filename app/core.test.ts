@@ -95,26 +95,19 @@ describe('applyChannelOffset (kanal başlangıç/patch offset)', () => {
     expect(applyChannelOffset(dmx, 0)).toBe(dmx)
   })
 
-  it('offset verilince ilk N bayt karanlık kalır, veri sağa kayar', () => {
+  it('pozitif offset: veri sağa dairesel kayar, sondan taşan başa sarar (veri kaybı yok)', () => {
     const dmx = Buffer.alloc(512)
-    dmx[0] = 255
-    dmx[1] = 128
+    dmx[0] = 255 // kaynak kanal 1
+    dmx[1] = 128 // kaynak kanal 2
+    dmx[511] = 77 // kaynak kanal 512
     const shifted = applyChannelOffset(dmx, 5)
     expect(shifted.length).toBe(512)
-    expect([...shifted.subarray(0, 5)]).toEqual([0, 0, 0, 0, 0])
-    expect(shifted[5]).toBe(255)
+    expect(shifted[5]).toBe(255) // cihaz kanal 6 = kaynak kanal 1
     expect(shifted[6]).toBe(128)
+    expect(shifted[4]).toBe(77) // sondan taşan kaynak kanal 512, başa (cihaz kanal 5'e) sarar — atılmaz
   })
 
-  it('offset + veri 512\'yi aşarsa taşan kısım kırpılır', () => {
-    const dmx = Buffer.alloc(10).fill(9)
-    const shifted = applyChannelOffset(dmx, 510)
-    expect(shifted.length).toBe(512)
-    expect(shifted[510]).toBe(9)
-    expect(shifted[511]).toBe(9)
-  })
-
-  it('negatif offset: kaynağın ilk |N| kanalı atlanır, veri sola kayar', () => {
+  it('negatif offset: veri sola dairesel kayar, baştan taşan sona sarar (veri kaybı yok)', () => {
     const dmx = Buffer.alloc(512)
     dmx[0] = 111 // kaynak kanal 1
     dmx[1] = 222 // kaynak kanal 2
@@ -123,21 +116,24 @@ describe('applyChannelOffset (kanal başlangıç/patch offset)', () => {
     expect(shifted.length).toBe(512)
     expect(shifted[0]).toBe(222) // cihaz kanal 1 = kaynak kanal 2
     expect(shifted[1]).toBe(33) // cihaz kanal 2 = kaynak kanal 3
+    expect(shifted[511]).toBe(111) // baştan taşan kaynak kanal 1, sona (cihaz kanal 512'ye) sarar — atılmaz
   })
 
-  it('negatif offset: son |N| cihaz kanalı karanlık kalır (kaynakta veri kalmadı)', () => {
-    const dmx = Buffer.alloc(512).fill(7)
-    const shifted = applyChannelOffset(dmx, -3)
-    expect(shifted[509]).toBe(0)
-    expect(shifted[510]).toBe(0)
-    expect(shifted[511]).toBe(0)
-    expect(shifted[508]).toBe(7)
-  })
-
-  it('offset ile negatif offset birbirini geri alır (round-trip)', () => {
+  it('offset ile negatif offset birbirini geri alır (round-trip, veri kaybı yok)', () => {
     const dmx = Buffer.alloc(512)
     dmx[0] = 42
+    dmx[511] = 99
     const shiftedThenBack = applyChannelOffset(applyChannelOffset(dmx, 4), -4)
     expect(shiftedThenBack[0]).toBe(42)
+    expect(shiftedThenBack[511]).toBe(99)
+  })
+
+  it('|offset|=511 gibi büyük değerlerde de veri kaybı olmaz (tam tur - 1)', () => {
+    const dmx = Buffer.alloc(512)
+    for (let i = 0; i < 512; i++) dmx[i] = i % 256
+    const shifted = applyChannelOffset(dmx, 511)
+    const allValues = new Set([...shifted])
+    const expectedValues = new Set([...dmx])
+    expect(allValues).toEqual(expectedValues)
   })
 })

@@ -240,7 +240,7 @@ async function addRouteFlow(clack: ClackModule, store: Store): Promise<void> {
   if (clack.isCancel(hzStr)) return
 
   const channelOffsetStr = await clack.text({
-    message: 'Channel start (patch) offset, -511 to 511 (positive: delay device output; negative: skip leading source channels)',
+    message: 'Channel start (patch) offset, -511 to 511 (rotates circularly — no data is dropped)',
     initialValue: '0',
     validate: (v) => {
       const n = Number(v)
@@ -359,7 +359,7 @@ async function main(): Promise<void> {
     .option('--hz <hz>', 'Output rate in Hz (1-44)', '40')
     .option(
       '--channel-offset <n>',
-      'Channel start (patch) offset, -511 to 511. Positive: leading N device channels stay dark. Negative: skip the first N source channels.',
+      'Channel start (patch) offset, -511 to 511. Rotates the universe circularly — no data is dropped, channels that fall off one end wrap to the other.',
       '0'
     )
     .option('--config <dir>', 'Config directory override (default: shared with the desktop app)')
