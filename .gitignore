@@ -12,3 +12,7 @@ release/
 
 # @yao-pkg/pkg native addon çıkarma/derleme kalıntıları
 .pkg-cache/
+
+# build-standalone.mjs geçici dosyaları
+.standalone-tmp/
+.standalone-pkg.config.json

@@ -1,7 +1,7 @@
 {
   "name": "relackout-artnet2usb",
   "version": "0.2.0",
-  "description": "Relackout ArtNet 2 USB \u2014 a\u011fdaki Art-Net yay\u0131nlar\u0131n\u0131 USB DMX aray\u00fczlerine k\u00f6pr\u00fcler",
+  "description": "Relackout ArtNet 2 USB — ağdaki Art-Net yayınlarını USB DMX arayüzlerine köprüler",
   "main": "dist/main/main.js",
   "bin": {
     "artnet2usb-cli": "dist-cli/cli/index.js"
@@ -34,10 +34,12 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "@yao-pkg/pkg": "^6.21.0",
     "autoprefixer": "^10.4.20",
     "electron": "^33.2.0",
     "electron-builder": "^26.0.0",
     "electron-vite": "^2.3.0",
+    "esbuild": "^0.28.1",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.15",
     "tsx": "^4.19.2",
@@ -49,7 +51,8 @@
     "electron@33.4.11": true,
     "esbuild@0.21.5": true,
     "@serialport/bindings-cpp@12.0.1": true,
-    "electron-winstaller@5.4.0": true
+    "electron-winstaller@5.4.0": true,
+    "esbuild@0.28.1": true
   },
   "build": {
     "appId": "tech.remana.relackout.artnet2usb",

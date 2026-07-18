@@ -49,3 +49,25 @@ describe('buildSystemdUnit', () => {
     expect(unit).toContain(`'it'\\''s-a-test'`)
   })
 })
+
+describe('derlenmiş tek dosyalık binary (scriptPath: null)', () => {
+  const compiledOpts: ServiceOpts = {
+    nodePath: '/opt/artnet2usb/artnet2usb-cli',
+    scriptPath: null,
+    args: ['auto'],
+    user: 'pi',
+    label: 'tech.remana.relackout.artnet2usb-cli'
+  }
+
+  it('plist: binary tek başına ProgramArguments olur, script satırı eklenmez', () => {
+    const plist = buildLaunchdPlist(compiledOpts)
+    expect(plist).toContain('<string>/opt/artnet2usb/artnet2usb-cli</string>')
+    expect(plist).toContain('<string>auto</string>')
+    expect(plist).not.toContain('index.js')
+  })
+
+  it('systemd: ExecStart doğrudan binary + komut olur', () => {
+    const unit = buildSystemdUnit(compiledOpts)
+    expect(unit).toContain("ExecStart='/opt/artnet2usb/artnet2usb-cli' 'auto'")
+  })
+})

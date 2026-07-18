@@ -1,6 +1,6 @@
 import type { Command } from 'commander'
 import { Store } from '../shared/store'
-import { defaultConfigDir } from './configDir'
+import { resolveConfigDir } from './configDir'
 import type { OutputProtocol, RouteConfig } from '../shared/types'
 
 function formatRoute(r: RouteConfig): string {
@@ -66,7 +66,7 @@ export function registerRouteCommands(program: Command): void {
           process.exitCode = 1
           return
         }
-        const store = new Store(opts.config ?? defaultConfigDir())
+        const store = new Store(opts.config ?? resolveConfigDir())
         const id = opts.id ?? `route-${Date.now()}`
         store.upsertRoute({ id, universe, deviceUid: opts.device, protocol, hz, channelOffset, enabled: !opts.disabled })
         console.log(`Saved route "${id}".`)
@@ -78,7 +78,7 @@ export function registerRouteCommands(program: Command): void {
     .description('List saved routes')
     .option('--config <dir>', 'Config directory override (default: shared with the desktop app)')
     .action((opts: { config?: string }) => {
-      const store = new Store(opts.config ?? defaultConfigDir())
+      const store = new Store(opts.config ?? resolveConfigDir())
       if (store.routes.length === 0) {
         console.log('No routes configured.')
         return
@@ -91,7 +91,7 @@ export function registerRouteCommands(program: Command): void {
     .description('Remove a saved route by id')
     .option('--config <dir>', 'Config directory override (default: shared with the desktop app)')
     .action((id: string, opts: { config?: string }) => {
-      const store = new Store(opts.config ?? defaultConfigDir())
+      const store = new Store(opts.config ?? resolveConfigDir())
       store.removeRoute(id)
       console.log(`Removed route "${id}" (if it existed).`)
     })

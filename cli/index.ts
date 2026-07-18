@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Store } from '../shared/store'
-import { defaultConfigDir } from './configDir'
+import { resolveConfigDir } from './configDir'
 import { startBridge } from './bridge'
 import { ArtNetListener } from '../app/artnet'
 import { DmxOutputEngine } from '../app/dmxOutput'
@@ -318,7 +318,7 @@ async function main(): Promise<void> {
   // Argümansız çalıştırma → doğrudan interaktif sihirbaz (commander'ın "default command"
   // ayarlarıyla uğraşmak yerine en basit ve öngörülebilir yol).
   if (process.argv.length <= 2) {
-    await runConfigure(clack, defaultConfigDir())
+    await runConfigure(clack, resolveConfigDir())
     return
   }
 
@@ -341,7 +341,7 @@ async function main(): Promise<void> {
     .option('--config <dir>', 'Config directory override (default: shared with the desktop app)')
     .option('--json', 'Emit newline-delimited JSON status instead of human-readable text')
     .action(async (opts: { config?: string; json?: boolean }) => {
-      await runBridge(opts.config ?? defaultConfigDir(), { json: opts.json })
+      await runBridge(opts.config ?? resolveConfigDir(), { json: opts.json })
     })
 
   program
@@ -349,7 +349,7 @@ async function main(): Promise<void> {
     .description('Interactively add/remove routes (terminal wizard)')
     .option('--config <dir>', 'Config directory override (default: shared with the desktop app)')
     .action(async (opts: { config?: string }) => {
-      await runConfigure(clack, opts.config ?? defaultConfigDir())
+      await runConfigure(clack, opts.config ?? resolveConfigDir())
     })
 
   program
@@ -387,7 +387,7 @@ async function main(): Promise<void> {
       // Bayrak elle verilmediyse (sadece commander varsayılanı uygulandıysa) undefined geçilir —
       // runAuto() bu durumda mevcut "auto" rotasının değerini korur (bkz. runAuto yorumu).
       const explicit = (key: string) => command.getOptionValueSource(key) === 'cli'
-      await runAuto(opts.config ?? defaultConfigDir(), {
+      await runAuto(opts.config ?? resolveConfigDir(), {
         protocol: explicit('protocol') ? protocol : undefined,
         hz: explicit('hz') ? hz : undefined,
         channelOffset: explicit('channelOffset') ? channelOffset : undefined,
@@ -401,7 +401,7 @@ async function main(): Promise<void> {
     .description('Check the saved config for common problems (disconnected devices, conflicting routes)')
     .option('--config <dir>', 'Config directory override (default: shared with the desktop app)')
     .action(async (opts: { config?: string }) => {
-      const configDir = opts.config ?? defaultConfigDir()
+      const configDir = opts.config ?? resolveConfigDir()
       const store = new Store(configDir)
       const engine = new DmxOutputEngine(
         () => null,

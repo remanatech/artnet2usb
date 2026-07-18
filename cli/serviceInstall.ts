@@ -2,10 +2,12 @@ import type { Command } from 'commander'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { isCompiledBinary } from '../shared/portableConfig'
 
 export interface ServiceOpts {
   nodePath: string
-  scriptPath: string
+  /** Tek dosyalık derlenmiş binary'de null — nodePath'in kendisi CLI'dır, ayrıca script argümanı verilmez. */
+  scriptPath: string | null
   args: string[]
   user: string
   label: string
@@ -21,7 +23,9 @@ function quoteShellArg(s: string): string {
 
 /** macOS LaunchAgent — kullanıcı düzeyinde, sudo gerektirmez. (Saf — test edilir.) */
 export function buildLaunchdPlist(opts: ServiceOpts): string {
-  const argsXml = [opts.scriptPath, ...opts.args].map((a) => `    <string>${escapeXml(a)}</string>`).join('\n')
+  const argsXml = [...(opts.scriptPath ? [opts.scriptPath] : []), ...opts.args]
+    .map((a) => `    <string>${escapeXml(a)}</string>`)
+    .join('\n')
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -48,7 +52,7 @@ ${argsXml}
 
 /** Linux systemd system unit — açılışta/çökme sonrası otomatik başlar, sudo gerektirir. (Saf — test edilir.) */
 export function buildSystemdUnit(opts: ServiceOpts): string {
-  const execArgs = [opts.scriptPath, ...opts.args].map(quoteShellArg).join(' ')
+  const execArgs = [...(opts.scriptPath ? [opts.scriptPath] : []), ...opts.args].map(quoteShellArg).join(' ')
   return `[Unit]
 Description=${opts.label}
 After=network-online.target
@@ -103,7 +107,9 @@ export function registerServiceCommands(program: Command): void {
         process.exitCode = 1
         return
       }
-      const scriptPath = path.resolve(process.argv[1])
+      // Derlenmiş tek dosyalık binary'de execPath CLI'ın kendisidir; argv[1]
+      // snapshot içindeki sanal yolu gösterir ve servise yazılmamalıdır.
+      const scriptPath = isCompiledBinary() ? null : path.resolve(process.argv[1])
       const args = [opts.command, ...(opts.config ? ['--config', opts.config] : [])]
       const serviceOpts: ServiceOpts = {
         nodePath: process.execPath,
