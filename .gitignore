@@ -5,3 +5,10 @@ dist-standalone/
 release/
 *.log
 .DS_Store
+*.tsbuildinfo
+
+# Portable-mod smoke testlerinde exe yanında oluşan yerel config
+/config.json
+
+# @yao-pkg/pkg native addon çıkarma/derleme kalıntıları
+.pkg-cache/

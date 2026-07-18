@@ -19,7 +19,8 @@
     "dist:win": "electron-vite build && electron-builder --win",
     "dist:linux": "electron-vite build && electron-builder --linux",
     "build:cli": "tsc -p tsconfig.cli.json",
-    "dev:cli": "tsx cli/index.ts"
+    "dev:cli": "tsx cli/index.ts",
+    "dist:standalone": "node scripts/build-standalone.mjs"
   },
   "dependencies": {
     "@clack/prompts": "^1.7.0",
@@ -62,24 +63,30 @@
     "mac": {
       "category": "public.app-category.utilities",
       "target": [
-        "dmg",
-        "zip"
+        "dmg"
       ],
       "icon": "build/icon.icns"
     },
     "win": {
       "target": [
-        "nsis",
-        "zip"
+        "portable"
       ],
       "icon": "build/icon.ico"
     },
     "linux": {
       "target": [
-        "AppImage",
-        "deb"
+        "AppImage"
       ],
       "icon": "build/icons"
+    },
+    "portable": {
+      "artifactName": "Relackout-ArtNet2USB-${version}-portable.${ext}"
+    },
+    "appImage": {
+      "artifactName": "Relackout-ArtNet2USB-${version}-${arch}.${ext}"
+    },
+    "dmg": {
+      "artifactName": "Relackout-ArtNet2USB-${version}-${arch}.${ext}"
     }
   }
 }
