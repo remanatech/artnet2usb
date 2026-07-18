@@ -41,7 +41,7 @@ const CLI_TARGETS = {
   'node22-macos-x64': 'macos-x64',
   'node22-linux-x64': 'linux-x64',
   'node22-linux-arm64': 'linux-arm64',
-  'node20-linuxstatic-armv7': 'linux-armv7l',
+  'node22-linuxstatic-armv7': 'linux-armv7l',
   'node22-win-x64': 'win-x64.exe'
 }
 
@@ -89,7 +89,7 @@ async function buildCliBinaries() {
     'dist-cli/cli/index.js',
     '--bundle',
     '--platform=node',
-    '--target=node20',
+    '--target=node18',
     '--format=cjs',
     '--external:@serialport/bindings-cpp',
     `--outfile=${path.join(TMP_DIR, 'cli-bundle.cjs')}`
@@ -114,7 +114,11 @@ async function buildCliBinaries() {
   try {
     for (const target of cliTargetList()) {
       const out = path.join(OUT_DIR, `artnet2usb-cli-${version}-${targetSuffix(target)}`)
-      npx('pkg', [PKG_CONFIG, '--target', target, '--output', out])
+      // armv7 (32-bit Raspberry Pi): bytecode üretimi host platformda aynı mimaride
+      // bir "fabricator" node'u ister; macos/win için armv7 binary'si yayınlanmadığından
+      // cross-build ancak bytecode'suz mümkün (kod snapshot'ta düz JS olarak taşınır).
+      const extra = target.includes('armv7') ? ['--no-bytecode', '--public'] : []
+      npx('pkg', [PKG_CONFIG, '--target', target, ...extra, '--output', out])
       console.log(`✓ ${path.relative(root, out)}`)
     }
   } finally {
@@ -125,10 +129,15 @@ async function buildCliBinaries() {
 
 function guiPlatformFlags() {
   const flags = ['--mac', '--win', '--linux'].filter((f) => has(f))
-  if (flags.length > 0) return flags
-  if (process.platform === 'darwin') return ['--mac']
-  if (process.platform === 'win32') return ['--win']
-  return ['--linux']
+  if (flags.length === 0) {
+    if (process.platform === 'darwin') flags.push('--mac')
+    else if (process.platform === 'win32') flags.push('--win')
+    else flags.push('--linux')
+  }
+  // Mimari bayrakları electron-builder'a aynen iletilir (verilmezse host mimarisi).
+  // Aynı çağrıdaki TÜM platformlara uygulanır — mimari başına ayrı çağrı yapın.
+  flags.push(...['--x64', '--arm64', '--armv7l'].filter((f) => has(f)))
+  return flags
 }
 
 async function buildGuiArtifacts() {

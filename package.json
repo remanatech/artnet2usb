@@ -57,6 +57,7 @@
   "build": {
     "appId": "tech.remana.relackout.artnet2usb",
     "productName": "Relackout ArtNet 2 USB",
+    "npmRebuild": false,
     "files": [
       "dist/**"
     ],
