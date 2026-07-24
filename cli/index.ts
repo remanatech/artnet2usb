@@ -11,10 +11,10 @@ import { registerServiceCommands } from './serviceInstall'
 import type { OutputProtocol, RouteConfig } from '../shared/types'
 import type { Command } from 'commander'
 
-// commander + @clack/prompts saf ESM paketler ("type":"module", sadece .mjs) — bu CLI
-// CommonJS'e derleniyor (app/artnet.ts + app/dmxOutput.ts'i DEĞİŞTİRMEDEN, extensionless
-// import'larıyla, doğrudan içe aktarabilmek için). CJS'ten ESM'e dinamik import() standart
-// ve güvenli bir Node.js interop deseni — bu yüzden ikisi de statik değil dinamik alınıyor.
+// commander + @clack/prompts are pure ESM packages ("type":"module", .mjs only) — this CLI
+// compiles to CommonJS (so it can import app/artnet.ts + app/dmxOutput.ts directly, WITHOUT
+// MODIFYING them, with their extensionless imports). Dynamic import() from CJS to ESM is a
+// standard and safe Node.js interop pattern — that's why both are loaded dynamically rather than statically.
 type ClackModule = typeof import('@clack/prompts')
 type CommanderModule = typeof import('commander')
 
@@ -102,7 +102,7 @@ async function runBridge(configDir: string, opts: RunOpts = {}): Promise<void> {
   }
   process.on('SIGINT', () => void shutdown())
   process.on('SIGTERM', () => void shutdown())
-  // setInterval + açık UDP soket süreci ayakta tutar — Ctrl+C/SIGTERM'e kadar bekler.
+  // The setInterval + open UDP socket keep the process alive — it waits until Ctrl+C/SIGTERM.
 }
 
 async function runAuto(
@@ -315,8 +315,8 @@ async function main(): Promise<void> {
   const { Command } = (await import('commander')) as CommanderModule
   const clack = (await import('@clack/prompts')) as ClackModule
 
-  // Argümansız çalıştırma → doğrudan interaktif sihirbaz (commander'ın "default command"
-  // ayarlarıyla uğraşmak yerine en basit ve öngörülebilir yol).
+  // Running with no arguments → go straight to the interactive wizard (the simplest and
+  // most predictable approach, instead of dealing with commander's "default command" setup).
   if (process.argv.length <= 2) {
     await runConfigure(clack, resolveConfigDir())
     return
@@ -384,8 +384,8 @@ async function main(): Promise<void> {
         process.exitCode = 1
         return
       }
-      // Bayrak elle verilmediyse (sadece commander varsayılanı uygulandıysa) undefined geçilir —
-      // runAuto() bu durumda mevcut "auto" rotasının değerini korur (bkz. runAuto yorumu).
+      // If the flag was not explicitly passed (only commander's default applied), undefined is passed through —
+      // in that case runAuto() preserves the existing "auto" route's value (see the runAuto comment).
       const explicit = (key: string) => command.getOptionValueSource(key) === 'cli'
       await runAuto(opts.config ?? resolveConfigDir(), {
         protocol: explicit('protocol') ? protocol : undefined,

@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * pkg ile üretilmiş Windows .exe'sine ikon + sürüm metadatası gömer (PE resource section).
- * `resedit` kütüphanesini doğrudan kullanır — böylece .cmd/npx shim'lerine ve shell
- * tırnaklama sorunlarına takılmadan, gerçek `node` süreci içinde çalışır.
+ * Embeds an icon + version metadata into a pkg-produced Windows .exe (PE resource section).
+ * Uses the `resedit` library directly — so it runs inside a real `node` process, with no
+ * .cmd/npx shim or shell-quoting issues to trip over.
  *
- * pkg payload'ı PE'nin sonuna eklenen "extra data" (overlay) olarak durur; pe-library
- * bunu getExtraData/setExtraData ile koruduğundan generate() sonrası binary çalışır kalır.
+ * pkg's payload sits at the end of the PE as "extra data" (an overlay); pe-library
+ * preserves it via getExtraData/setExtraData, so the binary still runs after generate().
  *
- * Kullanım: node scripts/embed-win-resources.mjs <exe-yolu> <icon.ico-yolu>
+ * Usage: node scripts/embed-win-resources.mjs <exe-path> <icon.ico-path>
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -20,7 +20,7 @@ const pkgJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf
 const exePath = process.argv[2]
 const iconPath = process.argv[3]
 if (!exePath || !iconPath) {
-  console.error('Kullanım: node scripts/embed-win-resources.mjs <exe> <icon.ico>')
+  console.error('Usage: node scripts/embed-win-resources.mjs <exe> <icon.ico>')
   process.exit(1)
 }
 
@@ -43,7 +43,7 @@ const versionStr = `${major}.${minor}.${micro}.${rev}`
 const exe = ResEdit.NtExecutable.from(fs.readFileSync(exePath))
 const res = ResEdit.NtExecutableResource.from(exe)
 
-// --- İkon (grup ID 1) ---
+// --- Icon (group ID 1) ---
 const iconFile = ResEdit.Data.IconFile.from(fs.readFileSync(iconPath))
 ResEdit.Resource.IconGroupEntry.replaceIconsForResource(
   res.entries,
@@ -52,7 +52,7 @@ ResEdit.Resource.IconGroupEntry.replaceIconsForResource(
   iconFile.icons.map((item) => item.data)
 )
 
-// --- Sürüm bilgisi ---
+// --- Version info ---
 const vi = ResEdit.Resource.VersionInfo.createEmpty()
 vi.setFileVersion(major, minor, micro, rev, LANG)
 vi.setProductVersion(major, minor, micro, rev, LANG)
@@ -72,4 +72,4 @@ vi.outputToResourceEntries(res.entries)
 
 res.outputResource(exe)
 fs.writeFileSync(exePath, Buffer.from(exe.generate()))
-console.log(`✓ ikon + sürüm gömüldü: ${path.relative(root, exePath)}`)
+console.log(`✓ icon + version embedded: ${path.relative(root, exePath)}`)

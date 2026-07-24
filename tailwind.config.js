@@ -1,4 +1,4 @@
-/** Relackout tasarım dili — aynı palet. */
+/** Relackout design language — same palette. */
 export default {
   content: ['./src/**/*.{ts,tsx,html}'],
   theme: {

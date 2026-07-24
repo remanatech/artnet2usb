@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-/** Renderer köprüsü — auth yok, dar yüzey. */
+/** Renderer bridge — no auth, narrow surface. */
 contextBridge.exposeInMainWorld('artnet2usb', {
   invoke: (channel: string, ...args: unknown[]) => {
     const allowed = [

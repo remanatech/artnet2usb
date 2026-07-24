@@ -6,9 +6,9 @@ export interface DoctorIssue {
 }
 
 /**
- * `doctor` komutunun karar mantığı: config.json içindeki etkin rotaları,
- * o an bağlı USB cihazlarına karşı çapraz kontrol eder. Saf — gerçek dosya
- * sistemi/donanım erişimi çağıran tarafta (cli/index.ts) yapılır.
+ * Decision logic for the `doctor` command: cross-checks the enabled routes in
+ * config.json against the USB devices currently connected. Pure — actual
+ * filesystem/hardware access happens on the caller's side (cli/index.ts).
  */
 export function runDoctorChecks(routes: RouteConfig[], devices: UsbDevice[]): DoctorIssue[] {
   const issues: DoctorIssue[] = []

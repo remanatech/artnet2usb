@@ -6,7 +6,7 @@ import { isCompiledBinary } from '../shared/portableConfig'
 
 export interface ServiceOpts {
   nodePath: string
-  /** Tek dosyalık derlenmiş binary'de null — nodePath'in kendisi CLI'dır, ayrıca script argümanı verilmez. */
+  /** Null in the single-file compiled binary — nodePath itself is the CLI, and no separate script argument is passed. */
   scriptPath: string | null
   args: string[]
   user: string
@@ -21,7 +21,7 @@ function quoteShellArg(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`
 }
 
-/** macOS LaunchAgent — kullanıcı düzeyinde, sudo gerektirmez. (Saf — test edilir.) */
+/** macOS LaunchAgent — user-level, does not require sudo. (Pure — testable.) */
 export function buildLaunchdPlist(opts: ServiceOpts): string {
   const argsXml = [...(opts.scriptPath ? [opts.scriptPath] : []), ...opts.args]
     .map((a) => `    <string>${escapeXml(a)}</string>`)
@@ -50,7 +50,7 @@ ${argsXml}
 `
 }
 
-/** Linux systemd system unit — açılışta/çökme sonrası otomatik başlar, sudo gerektirir. (Saf — test edilir.) */
+/** Linux systemd system unit — starts automatically on boot/after a crash, requires sudo. (Pure — testable.) */
 export function buildSystemdUnit(opts: ServiceOpts): string {
   const execArgs = [...(opts.scriptPath ? [opts.scriptPath] : []), ...opts.args].map(quoteShellArg).join(' ')
   return `[Unit]
@@ -74,10 +74,10 @@ const LABEL = 'tech.remana.relackout.artnet2usb-cli'
 const SYSTEMD_UNIT_PATH = '/etc/systemd/system/artnet2usb-cli.service'
 
 /**
- * Linux'ta /etc/systemd/system'a yazmak neredeyse her zaman sudo gerektirir —
- * bu durumda os.userInfo().username 'root' döner, servis yanlışlıkla root
- * olarak üretilir. `sudo` çağıranın gerçek kullanıcısını SUDO_USER'da bırakır;
- * varsa onu kullan (systemd'nin User= alanı bu kullanıcı olmalı).
+ * Writing to /etc/systemd/system on Linux almost always requires sudo —
+ * in that case os.userInfo().username returns 'root', so the service would be
+ * generated as root by mistake. `sudo` leaves the real invoking user in
+ * SUDO_USER; use it when present (systemd's User= field should be this user).
  */
 function resolveInvokingUser(): string {
   const sudoUser = process.env.SUDO_USER
@@ -89,11 +89,11 @@ function launchdPlistPath(): string {
 }
 
 /**
- * `install-service` / `uninstall-service` — açılışta/çökme sonrası otomatik
- * başlayan bir arkaplan servisi kurar. Kalıcı bir sistem değişikliği olduğu
- * için komut servis TANIM DOSYASINI yazar/siler ama `launchctl load` /
- * `systemctl enable --now` çağrısını KENDİSİ ÇALIŞTIRMAZ — son etkinleştirme
- * adımını kullanıcıya kopyala-yapıştır komut olarak yazdırır.
+ * `install-service` / `uninstall-service` — sets up a background service that
+ * starts automatically on boot/after a crash. Since this is a persistent
+ * system change, the command writes/removes the service DEFINITION FILE but
+ * does NOT itself run `launchctl load` / `systemctl enable --now` — it prints
+ * the final activation step to the user as a copy-paste command.
  */
 export function registerServiceCommands(program: Command): void {
   program
@@ -107,8 +107,8 @@ export function registerServiceCommands(program: Command): void {
         process.exitCode = 1
         return
       }
-      // Derlenmiş tek dosyalık binary'de execPath CLI'ın kendisidir; argv[1]
-      // snapshot içindeki sanal yolu gösterir ve servise yazılmamalıdır.
+      // In the compiled single-file binary, execPath is the CLI itself; argv[1]
+      // points to a virtual path inside the snapshot and must not be written to the service.
       const scriptPath = isCompiledBinary() ? null : path.resolve(process.argv[1])
       const args = [opts.command, ...(opts.config ? ['--config', opts.config] : [])]
       const serviceOpts: ServiceOpts = {

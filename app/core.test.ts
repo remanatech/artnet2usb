@@ -64,8 +64,8 @@ describe('DMX çıkışı', () => {
     expect(f[1]).toBe(6)
     expect(f.readUInt16LE(2)).toBe(513) // startcode + 512
     expect(f[4]).toBe(0) // start code
-    expect(f[5]).toBe(255) // kanal 1
-    expect(f[4 + 512]).toBe(7) // kanal 512
+    expect(f[5]).toBe(255) // channel 1
+    expect(f[4 + 512]).toBe(7) // channel 512
     expect(f[f.length - 1]).toBe(0xe7)
     expect(f.length).toBe(513 + 5)
   })
@@ -97,26 +97,26 @@ describe('applyChannelOffset (kanal başlangıç/patch offset)', () => {
 
   it('pozitif offset: veri sağa dairesel kayar, sondan taşan başa sarar (veri kaybı yok)', () => {
     const dmx = Buffer.alloc(512)
-    dmx[0] = 255 // kaynak kanal 1
-    dmx[1] = 128 // kaynak kanal 2
-    dmx[511] = 77 // kaynak kanal 512
+    dmx[0] = 255 // source channel 1
+    dmx[1] = 128 // source channel 2
+    dmx[511] = 77 // source channel 512
     const shifted = applyChannelOffset(dmx, 5)
     expect(shifted.length).toBe(512)
-    expect(shifted[5]).toBe(255) // cihaz kanal 6 = kaynak kanal 1
+    expect(shifted[5]).toBe(255) // device channel 6 = source channel 1
     expect(shifted[6]).toBe(128)
-    expect(shifted[4]).toBe(77) // sondan taşan kaynak kanal 512, başa (cihaz kanal 5'e) sarar — atılmaz
+    expect(shifted[4]).toBe(77) // source channel 512 overflows from the end, wraps to the start (device channel 5) — not dropped
   })
 
   it('negatif offset: veri sola dairesel kayar, baştan taşan sona sarar (veri kaybı yok)', () => {
     const dmx = Buffer.alloc(512)
-    dmx[0] = 111 // kaynak kanal 1
-    dmx[1] = 222 // kaynak kanal 2
-    dmx[2] = 33 // kaynak kanal 3
+    dmx[0] = 111 // source channel 1
+    dmx[1] = 222 // source channel 2
+    dmx[2] = 33 // source channel 3
     const shifted = applyChannelOffset(dmx, -1)
     expect(shifted.length).toBe(512)
-    expect(shifted[0]).toBe(222) // cihaz kanal 1 = kaynak kanal 2
-    expect(shifted[1]).toBe(33) // cihaz kanal 2 = kaynak kanal 3
-    expect(shifted[511]).toBe(111) // baştan taşan kaynak kanal 1, sona (cihaz kanal 512'ye) sarar — atılmaz
+    expect(shifted[0]).toBe(222) // device channel 1 = source channel 2
+    expect(shifted[1]).toBe(33) // device channel 2 = source channel 3
+    expect(shifted[511]).toBe(111) // source channel 1 overflows from the start, wraps to the end (device channel 512) — not dropped
   })
 
   it('offset ile negatif offset birbirini geri alır (round-trip, veri kaybı yok)', () => {

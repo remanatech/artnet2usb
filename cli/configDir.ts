@@ -3,10 +3,10 @@ import path from 'node:path'
 import { isCompiledBinary, resolvePortableConfigDir } from '../shared/portableConfig'
 
 /**
- * Electron'un app.getPath('userData') için kullandığı OS-standart yolu,
- * Electron'suz (CLI sürecinde) yeniden hesaplar — GUI ile AYNI config.json
- * paylaşılsın diye productName birebir aynı ('main.ts'te app.setName() hiç
- * çağrılmıyor, yani Electron package.json'daki build.productName'i kullanır).
+ * Recomputes, without Electron (in the CLI process), the OS-standard path that
+ * Electron's app.getPath('userData') uses — productName is kept identical so
+ * the SAME config.json is shared with the GUI ('main.ts' never calls
+ * app.setName(), so it uses build.productName from the Electron package.json).
  *  - macOS:   ~/Library/Application Support/<productName>
  *  - Windows: %APPDATA%/<productName>
  *  - Linux:   ${XDG_CONFIG_HOME:-~/.config}/<productName>
@@ -25,9 +25,9 @@ export function defaultConfigDir(): string {
 }
 
 /**
- * Tek dosyalık derlenmiş binary'de (pkg/bun) exe'nin bulunduğu dizin —
- * portable config adayı. Düz node/tsx çalıştırmasında null (execPath node'un
- * kendisi olurdu, yanına config yazmak yanlış).
+ * The directory the exe lives in, for a single-file compiled binary (pkg/bun) —
+ * the candidate for portable config. Null when running under plain node/tsx
+ * (execPath would be node itself, so writing config next to it would be wrong).
  */
 export function portableExeDir(): string | null {
   if (!isCompiledBinary()) return null
@@ -35,9 +35,9 @@ export function portableExeDir(): string | null {
 }
 
 /**
- * CLI'ın kullanacağı config dizini: portable-öncelikli.
- * Standalone binary'de exe'nin yanı (yazılabilirse ya da orada config.json
- * zaten varsa), aksi halde OS-standart dizin (GUI userData ile aynı).
+ * The config directory the CLI will use: portable-first.
+ * For a standalone binary, next to the exe (if writable, or if config.json
+ * already exists there), otherwise the OS-standard directory (same as the GUI's userData).
  */
 export function resolveConfigDir(): string {
   return resolvePortableConfigDir(portableExeDir(), defaultConfigDir())

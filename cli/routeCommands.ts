@@ -9,9 +9,9 @@ function formatRoute(r: RouteConfig): string {
 }
 
 /**
- * `route add/list/remove` — configure sihirbazını atlayıp scriptle
- * (Ansible/shell) toplu rota kurulumu yapabilmek için. GUI ile paylaşılan
- * aynı config.json'ı okur/yazar (shared/store.ts üzerinden).
+ * `route add/list/remove` — lets you bulk-provision routes via a script
+ * (Ansible/shell), bypassing the configure wizard. Reads/writes the same
+ * config.json shared with the GUI (via shared/store.ts).
  */
 export function registerRouteCommands(program: Command): void {
   const route = program.command('route').description('Manage routes non-interactively (scriptable)')

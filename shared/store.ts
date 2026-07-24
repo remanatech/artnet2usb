@@ -3,13 +3,14 @@ import path from 'node:path'
 import type { AppSettings, RouteConfig } from './types'
 
 /**
- * Basit JSON kalıcılık — Electron'dan bağımsız temel sınıf. Electron GUI
- * (app/store.ts) ve CLI (cli/index.ts) AYNI config.json'ı okur/yazar; tek
- * fark config dizininin nereden geldiği (Electron: app.getPath('userData'),
- * CLI: cli/configDir.ts — ikisi de aynı OS-standart yolu hesaplar).
- *  - deviceNames: cihaz hafızası — uid → kullanıcı adı (port değişse de kalıcı)
- *  - routes: yönlendirme tablosu
- *  - settings: sinyal kaybı davranışı
+ * Simple JSON persistence — base class independent of Electron. The Electron
+ * GUI (app/store.ts) and the CLI (cli/index.ts) read/write the SAME
+ * config.json; the only difference is where the config directory comes from
+ * (Electron: app.getPath('userData'), CLI: cli/configDir.ts — both compute
+ * the same OS-standard path).
+ *  - deviceNames: device memory — uid → user-given name (persists even if the port changes)
+ *  - routes: routing table
+ *  - settings: signal-loss behavior
  */
 
 export interface PersistedState {
@@ -51,7 +52,7 @@ export class Store {
       fs.mkdirSync(path.dirname(this.file), { recursive: true })
       fs.writeFileSync(this.file, JSON.stringify(this.state, null, 2))
     } catch (err) {
-      console.error('[store] kaydedilemedi', err)
+      console.error('[store] failed to save', err)
     }
   }
 

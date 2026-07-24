@@ -1,21 +1,21 @@
 #!/usr/bin/env node
 /**
- * Standalone (tek dosya) dağıtım pipeline'ı — çıktıların TAMAMI dist-standalone/ altında,
- * her biri kurulum gerektirmeyen tek dosyadır:
+ * Standalone (single-file) distribution pipeline — every output lands under dist-standalone/,
+ * and each one is a single file with nothing to install:
  *   GUI : Relackout-ArtNet2USB-<ver>-portable.exe / -<arch>.dmg / -<arch>.AppImage
- *   CLI : artnet2usb-cli-<ver>-<platform> (pkg ile derlenmiş gerçek binary, node gerekmez)
+ *   CLI : artnet2usb-cli-<ver>-<platform> (a real binary compiled with pkg, no Node.js needed)
  *
- * Kullanım:
+ * Usage:
  *   node scripts/build-standalone.mjs                 # host platform: GUI + CLI
- *   node scripts/build-standalone.mjs --cli           # sadece CLI (host hedefi)
- *   node scripts/build-standalone.mjs --cli --all-targets   # CLI: tüm platform matrisi
- *   node scripts/build-standalone.mjs --gui --mac --win --linux  # GUI: seçili platformlar
+ *   node scripts/build-standalone.mjs --cli           # CLI only (host target)
+ *   node scripts/build-standalone.mjs --cli --all-targets   # CLI: every platform in one pass
+ *   node scripts/build-standalone.mjs --gui --mac --win --linux  # GUI: selected platforms only
  *   node scripts/build-standalone.mjs --cli --targets node22-linux-x64,node22-win-x64
  *
- * CLI paketleme akışı: tsc (dist-cli) → esbuild ile tek CJS bundle (ESM commander/@clack
- * dahil) → @yao-pkg/pkg ile binary. serialport'un native .node dosyaları (prebuilds)
- * pkg asset'i olarak gömülür; @serialport/bindings-cpp bundle DIŞINDA bırakılır ki
- * node-gyp-build çalışma anında platforma uygun prebuild'i seçebilsin.
+ * CLI packaging flow: tsc (dist-cli) → esbuild into a single CJS bundle (including the ESM-only
+ * commander/@clack packages) → a binary via @yao-pkg/pkg. serialport's native .node files
+ * (prebuilds) are embedded as pkg assets; @serialport/bindings-cpp itself is kept OUTSIDE the
+ * bundle so node-gyp-build can pick the right prebuild for the platform at runtime.
  */
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -36,7 +36,7 @@ const TMP_DIR = path.join(root, '.standalone-tmp')
 const PKG_CONFIG = path.join(root, '.standalone-pkg.config.json')
 const ICON_ICO = path.join(root, 'build', 'icon.ico')
 
-/** pkg hedefi → çıktı dosya adı eki. armv7l = Raspberry Pi (32-bit OS). */
+/** pkg target → output filename suffix. armv7l = Raspberry Pi (32-bit OS). */
 const CLI_TARGETS = {
   'node22-macos-arm64': 'macos-arm64',
   'node22-macos-x64': 'macos-x64',
@@ -53,9 +53,9 @@ function hostCliTarget() {
   return `node22-linux-${arch}`
 }
 
-// Node 20+ execFileSync, Windows'ta .cmd/.bat dosyalarını shell olmadan çalıştırmayı
-// reddeder (EINVAL). Bu yüzden win32'de shell:true kullanıp boşluk içeren argümanları
-// kendimiz tırnaklıyoruz (root yolunda boşluk olan kurulumlar için).
+// Node 20+'s execFileSync refuses to run .cmd/.bat files on Windows without a shell
+// (EINVAL). So on win32 we use shell:true and quote arguments containing spaces
+// ourselves (for setups where the root path itself has a space in it).
 const IS_WIN = process.platform === 'win32'
 
 function run(cmd, cmdArgs, opts = {}) {
@@ -84,30 +84,31 @@ function cliTargetList() {
 
 function targetSuffix(target) {
   if (CLI_TARGETS[target]) return CLI_TARGETS[target]
-  // Bilinmeyen/özel hedef: "node22-linux-x64" → "linux-x64" (+ win ise .exe)
+  // Unknown/custom target: "node22-linux-x64" → "linux-x64" (+ .exe if it's win)
   const suffix = target.replace(/^node\d+-/, '').replace(/^linuxstatic-/, 'linux-')
   return suffix.startsWith('win') ? `${suffix}.exe` : suffix
 }
 
 /**
- * Windows .exe'ye ikon + sürüm metadatası gömer (PE resource section).
- * Sadece PE ikon gömmeyi destekleyen platformda anlamlı — macOS Mach-O / Linux ELF
- * binary'leri gömülü ikon taşımadığı için onlarda atlanır. resedit saf JS olduğundan
- * cross-build'de (mac/linux host'ta win hedefi) de çalışır. pkg payload'ı PE overlay'i
- * olarak sonda durur; resedit overlay'i koruyarak sadece resource section'ı günceller.
+ * Embeds an icon + version metadata into a Windows .exe (PE resource section).
+ * Only meaningful on platforms that support embedding a PE icon — skipped for
+ * macOS Mach-O / Linux ELF binaries, which don't carry an embedded icon. resedit is
+ * pure JS, so it also works cross-build (a win target on a mac/linux host). pkg's
+ * payload sits at the end as a PE overlay; resedit preserves that overlay and only
+ * updates the resource section.
  */
 function embedWinResources(exePath) {
   if (!fs.existsSync(ICON_ICO)) {
-    console.log('… ikon atlandı (build/icon.ico bulunamadı)')
+    console.log('… skipping icon (build/icon.ico not found)')
     return
   }
-  console.log('\n=== CLI: Windows ikon + sürüm metadatası gömülüyor ===')
-  // Gerçek `node` süreci (.cmd/npx shim'i değil) — resedit kütüphanesini kullanır.
+  console.log('\n=== CLI: embedding Windows icon + version metadata ===')
+  // A real `node` process (not the .cmd/npx shim) — uses the resedit library.
   run('node', [path.join('scripts', 'embed-win-resources.mjs'), exePath, ICON_ICO])
 }
 
 async function buildCliBinaries() {
-  console.log('\n=== CLI: tsc derleme ===')
+  console.log('\n=== CLI: tsc compile ===')
   npm(['run', 'build:cli'])
 
   console.log('\n=== CLI: esbuild bundle ===')
@@ -123,7 +124,7 @@ async function buildCliBinaries() {
     `--outfile=${path.join(TMP_DIR, 'cli-bundle.cjs')}`
   ])
 
-  console.log('\n=== CLI: pkg ile binary üretimi ===')
+  console.log('\n=== CLI: building binaries with pkg ===')
   fs.writeFileSync(
     PKG_CONFIG,
     JSON.stringify(
@@ -142,13 +143,14 @@ async function buildCliBinaries() {
   try {
     for (const target of cliTargetList()) {
       const out = path.join(OUT_DIR, `artnet2usb-cli-${version}-${targetSuffix(target)}`)
-      // armv7 (32-bit Raspberry Pi): bytecode üretimi host platformda aynı mimaride
-      // bir "fabricator" node'u ister; macos/win için armv7 binary'si yayınlanmadığından
-      // cross-build ancak bytecode'suz mümkün (kod snapshot'ta düz JS olarak taşınır).
+      // armv7 (32-bit Raspberry Pi): bytecode generation needs a "fabricator" node of the
+      // same architecture on the host; since no armv7 node binary is published for
+      // macOS/Windows, cross-building only works without bytecode (the code ships as
+      // plain JS in the snapshot instead).
       const extra = target.includes('armv7') ? ['--no-bytecode', '--public'] : []
       npx('pkg', [PKG_CONFIG, '--target', target, ...extra, '--output', out])
       console.log(`✓ ${path.relative(root, out)}`)
-      // Windows hedefiyse (PE .exe) ikon + sürüm bilgisini göm.
+      // Windows target (PE .exe): embed the icon + version info.
       if (target.includes('win') && out.endsWith('.exe')) embedWinResources(out)
     }
   } finally {
@@ -164,8 +166,8 @@ function guiPlatformFlags() {
     else if (process.platform === 'win32') flags.push('--win')
     else flags.push('--linux')
   }
-  // Mimari bayrakları electron-builder'a aynen iletilir (verilmezse host mimarisi).
-  // Aynı çağrıdaki TÜM platformlara uygulanır — mimari başına ayrı çağrı yapın.
+  // Architecture flags are passed straight through to electron-builder (host architecture
+  // if none given). They apply to ALL platforms in this call — use separate calls per arch.
   flags.push(...['--x64', '--arm64', '--armv7l'].filter((f) => has(f)))
   return flags
 }
@@ -173,10 +175,10 @@ function guiPlatformFlags() {
 async function buildGuiArtifacts() {
   console.log('\n=== GUI: electron-vite build ===')
   npx('electron-vite', ['build'])
-  console.log('\n=== GUI: electron-builder (tek dosya hedefler) ===')
+  console.log('\n=== GUI: electron-builder (single-file targets) ===')
   npx('electron-builder', guiPlatformFlags())
 
-  // Tek dosyalık son ürünleri release/ içinden dist-standalone/'a topla
+  // Collect the single-file artifacts from release/ into dist-standalone/
   const singleFile = /(-portable\.exe|\.dmg|\.AppImage)$/
   const releaseDir = path.join(root, 'release')
   for (const f of fs.readdirSync(releaseDir)) {
@@ -189,4 +191,4 @@ async function buildGuiArtifacts() {
 fs.mkdirSync(OUT_DIR, { recursive: true })
 if (buildCli) await buildCliBinaries()
 if (buildGui) await buildGuiArtifacts()
-console.log('\nTamamlandı — dist-standalone/ içindeki her dosya kurulumsuz, tek başına çalışır.')
+console.log('\nDone — every file in dist-standalone/ runs standalone, nothing to install.')

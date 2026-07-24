@@ -2,15 +2,16 @@ import { SerialPort } from 'serialport'
 import type { AppSettings, OutputProtocol, RouteConfig, RouteStatus, UsbDevice } from '../shared/types'
 
 /**
- * USB DMX çıkış motoru. Her aktif rota kendi zamanlayıcısında (hz) döner:
- * kaynak universe'ün son karesini alır ve seçili protokolle porta yazar.
- *  - enttec-pro: Enttec DMX USB Pro çerçevesi (0x7E, label 6, len LE, veri, 0xE7)
- *  - open-dmx:   FTDI ham DMX — 250000 baud 8N2, break + MAB + startcode + 512
- * Cihaz kimliği (uid) port yolundan bağımsızdır: rota, cihaz yeniden
- * takıldığında yeni yolunu kendisi bulur.
+ * USB DMX output engine. Each active route runs on its own timer (hz):
+ * it grabs the source universe's latest frame and writes it to the port
+ * using the selected protocol.
+ *  - enttec-pro: Enttec DMX USB Pro frame (0x7E, label 6, len LE, data, 0xE7)
+ *  - open-dmx:   FTDI raw DMX — 250000 baud 8N2, break + MAB + startcode + 512
+ * The device identity (uid) is independent of the port path: when the
+ * device is reconnected, the route finds its new path on its own.
  */
 
-/** Enttec Pro "Output Only Send DMX" paketi. (Saf — test edilir.) */
+/** Enttec Pro "Output Only Send DMX" packet. (Pure — unit tested.) */
 export function buildEnttecFrame(dmx: Buffer): Buffer {
   const payload = Buffer.alloc(513)
   payload[0] = 0 // start code
@@ -25,14 +26,16 @@ export function buildEnttecFrame(dmx: Buffer): Buffer {
 }
 
 /**
- * Kanal başlangıç (patch) offset'i uygular — dairesel kaydırma (rotate), veri
- * KAYBI OLMAZ: 512 kanallık buffer'ın tamamı korunur, sadece pozisyonlar
- * dairesel olarak kayar.
- *  - offset > 0: kaynak kanal 1..512 sırasıyla cihaz kanalı (1+offset)..'a
- *    yazılır; buffer sonundan taşan `offset` kanal başa (cihaz kanalı 1..offset'e) sarar.
- *  - offset < 0: kaynağın ilk |offset| kanalı cihaz buffer'ının SONUNA sarar
- *    (atılmaz), kaynak kanal (|offset|+1) cihazın kanal 1'ine yazılır.
- * offset=0 ise dokunmadan orijinal buffer'ı döner. (Saf — test edilir.)
+ * Applies a channel start (patch) offset — a circular rotation, so NO DATA
+ * IS LOST: the entire 512-channel buffer is preserved, only the positions
+ * are rotated circularly.
+ *  - offset > 0: source channels 1..512 are written in order to device
+ *    channel (1+offset).. onward; the `offset` channels that overflow the
+ *    end of the buffer wrap around to the start (device channels 1..offset).
+ *  - offset < 0: the first |offset| channels of the source wrap around to
+ *    the END of the device buffer (not dropped), source channel (|offset|+1)
+ *    is written to the device's channel 1.
+ * If offset=0, returns the original buffer untouched. (Pure — unit tested.)
  */
 export function applyChannelOffset(dmx: Buffer, offset: number): Buffer {
   if (!offset) return dmx
@@ -44,7 +47,7 @@ export function applyChannelOffset(dmx: Buffer, offset: number): Buffer {
   return shifted
 }
 
-/** serialport list kaydından kalıcı cihaz kimliği. (Saf — test edilir.) */
+/** Derives a persistent device identity from a serialport list record. (Pure — unit tested.) */
 export function deviceUid(p: { vendorId?: string; productId?: string; serialNumber?: string; path: string }): string {
   const vid = (p.vendorId ?? '?').toLowerCase()
   const pid = (p.productId ?? '?').toLowerCase()
@@ -57,13 +60,13 @@ interface ActiveOutput {
   framesSent: number
   error: string | null
   writing: boolean
-  /** Dondurulmuş kare — doluysa canlı veri yerine bu basılır */
+  /** Frozen frame — when set, this is output instead of live data */
   frozenFrame: Buffer | null
 }
 
 export class DmxOutputEngine {
   private active = new Map<string, ActiveOutput>() // routeId -> output
-  private lastFrames = new Map<string, Buffer>() // routeId -> son gönderilen kare
+  private lastFrames = new Map<string, Buffer>() // routeId -> last frame sent
 
   constructor(
     private getFrame: (universe: number) => { data: Buffer; lastAt: number } | null,
@@ -97,7 +100,7 @@ export class DmxOutputEngine {
     }
   }
 
-  /** Freeze: o anki kareyi sabitle; ikinci çağrı canlıya döndürür. Döner: yeni frozen durumu. */
+  /** Freeze: locks in the current frame; a second call returns to live. Returns: the new frozen state. */
   toggleFreeze(route: RouteConfig): boolean {
     const out = this.active.get(route.id)
     if (!out) return false
@@ -105,13 +108,13 @@ export class DmxOutputEngine {
       out.frozenFrame = null
       return false
     }
-    // O anki çıkış karesi: canlı veri, yoksa son basılan kare, yoksa karanlık
+    // Current output frame: live data, else the last frame sent, else blackout
     const fr = this.getFrame(route.universe)
     out.frozenFrame = Buffer.from(fr?.data ?? this.lastFrames.get(route.id) ?? Buffer.alloc(512))
     return true
   }
 
-  /** Rotayı başlat: cihazın güncel port yolunu uid ile bul, portu aç, döngüyü kur. */
+  /** Start a route: find the device's current port path by uid, open the port, set up the loop. */
   async start(route: RouteConfig): Promise<void> {
     await this.stop(route.id)
     const devices = await this.listDevices()
@@ -149,7 +152,7 @@ export class DmxOutputEngine {
       this.lastFrames.set(route.id, fr.data)
       return fr.data
     }
-    // Sinyal yok: ayara göre son kareyi tut ya da karart
+    // No signal: hold the last frame or blackout, depending on the setting
     if (settings.onSignalLoss === 'blackout') return Buffer.alloc(512)
     return this.lastFrames.get(route.id) ?? null
   }
@@ -166,10 +169,11 @@ export class DmxOutputEngine {
           out.port.write(buildEnttecFrame(dmx), (err) => (err ? reject(err) : resolve()))
         )
       } else {
-        // Open DMX: break (~1ms) + MAB (Mark After Break) + kare. serialport set({brk}) ile.
-        // NOT: flush() break→data arasında denendi ama titremeye yol açtı (geri alındı).
-        // Bu sürümde flush() döngünün EN BAŞINA taşındı — bir önceki turdan kalan
-        // artık baytı, mevcut break/MAB zamanlamasına dokunmadan temizlemeyi dener.
+        // Open DMX: break (~1ms) + MAB (Mark After Break) + frame, via serialport set({brk}).
+        // NOTE: flush() was tried between break→data but caused jitter (reverted).
+        // In this version flush() was moved to the VERY START of the loop — it tries
+        // to clear any leftover stray byte from the previous cycle without touching
+        // the current break/MAB timing.
         await new Promise<void>((resolve, reject) => out.port.flush((e) => (e ? reject(e) : resolve())))
         await new Promise<void>((resolve, reject) => out.port.set({ brk: true }, (e) => (e ? reject(e) : resolve())))
         await new Promise((r) => setTimeout(r, 1))

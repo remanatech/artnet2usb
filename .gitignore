@@ -7,12 +7,16 @@ release/
 .DS_Store
 *.tsbuildinfo
 
-# Portable-mod smoke testlerinde exe yanında oluşan yerel config
+# Editor/IDE
+.vscode/
+.idea/
+
+# Local config created next to the exe during portable-mode smoke tests
 /config.json
 
-# @yao-pkg/pkg native addon çıkarma/derleme kalıntıları
+# @yao-pkg/pkg native addon extraction/build leftovers
 .pkg-cache/
 
-# build-standalone.mjs geçici dosyaları
+# build-standalone.mjs temporary files
 .standalone-tmp/
 .standalone-pkg.config.json

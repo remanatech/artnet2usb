@@ -3,9 +3,10 @@ import os from 'node:os'
 import type { ArtNetNode, SeenUniverse } from '../shared/types'
 
 /**
- * Art-Net dinleyicisi: UDP 6454'te ArtDMX paketlerini pasif izler (keşif +
- * canlı veri) ve ArtPoll ile node'ları sorgular. Kütüphanesiz, spec'e göre:
- *  - Başlık: 'Art-Net\0' + OpCode (LE)
+ * Art-Net listener: passively watches for ArtDMX packets on UDP 6454
+ * (discovery + live data) and queries nodes via ArtPoll. No library, built
+ * to spec:
+ *  - Header: 'Art-Net\0' + OpCode (LE)
  *  - ArtDMX 0x5000: [seq, phys, SubUni, Net, LenHi, LenLo, data...]
  *  - ArtPoll 0x2000 / ArtPollReply 0x2100
  */
@@ -20,7 +21,7 @@ interface UniverseState {
   sourceIp: string
   lastAt: number
   data: Buffer
-  /** fps ölçümü: son penceredeki kare sayısı */
+  /** fps measurement: number of frames in the current window */
   frames: number
   fps: number
   windowStart: number
@@ -31,9 +32,9 @@ export interface ParsedDmx {
   data: Buffer
 }
 
-/** ArtDMX paketini çözer; Art-Net değilse/ArtDMX değilse null. (Saf — test edilir.) */
+/** Parses an ArtDMX packet; returns null if it's not Art-Net / not ArtDMX. (Pure — unit tested.) */
 export function parseArtDmx(msg: Buffer): ParsedDmx | null {
-  // 18 bayt başlık + en az 1 kanal
+  // 18-byte header + at least 1 channel
   if (msg.length < 19 || !msg.subarray(0, 8).equals(HEADER)) return null
   const opCode = msg.readUInt16LE(8)
   if (opCode !== OP_DMX) return null
@@ -44,7 +45,7 @@ export function parseArtDmx(msg: Buffer): ParsedDmx | null {
   return { universe: ((net & 0x7f) << 8) | subUni, data }
 }
 
-/** ArtPollReply'dan node bilgisi. */
+/** Node info parsed from an ArtPollReply. */
 export function parsePollReply(msg: Buffer, fallbackIp: string): ArtNetNode | null {
   if (msg.length < 26 || !msg.subarray(0, 8).equals(HEADER)) return null
   if (msg.readUInt16LE(8) !== OP_POLL_REPLY) return null
@@ -105,7 +106,7 @@ export class ArtNetListener {
       try {
         sock.setBroadcast(true)
       } catch {
-        /* platform izin vermezse keşif yine pasif çalışır */
+        /* if the platform doesn't allow it, discovery still works passively */
       }
       this.sendPoll()
     })
@@ -130,7 +131,7 @@ export class ArtNetListener {
     }
   }
 
-  /** Görülen yayınlar (10 sn'den eski olanlar düşer). */
+  /** Universes seen (entries older than 10s are dropped). */
   list(): SeenUniverse[] {
     const now = Date.now()
     const out: SeenUniverse[] = []
@@ -151,7 +152,7 @@ export class ArtNetListener {
     return [...this.nodes.values()]
   }
 
-  /** Universe'ün son karesi (kopya) — önizleme ve çıkış motoru için. */
+  /** The universe's latest frame (a copy) — for preview and the output engine. */
   frameOf(universe: number): { data: Buffer; lastAt: number } | null {
     const st = this.universes.get(universe)
     return st ? { data: Buffer.from(st.data), lastAt: st.lastAt } : null

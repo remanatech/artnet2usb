@@ -1,19 +1,40 @@
 {
   "name": "relackout-artnet2usb",
   "version": "0.2.0",
-  "description": "Relackout ArtNet 2 USB — ağdaki Art-Net yayınlarını USB DMX arayüzlerine köprüler",
+  "description": "Free Art-Net to USB DMX bridge for Enttec DMX USB Pro and Open DMX / FTDI interfaces, with a desktop GUI and a headless CLI",
   "main": "dist/main/main.js",
   "bin": {
     "artnet2usb-cli": "dist-cli/cli/index.js"
   },
-  "author": "remana.tech",
+  "author": "Remana <info@remana.tech> (https://relackout.com)",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/remanatech/artnet2usb.git"
+  },
+  "homepage": "https://relackout.com/usb-dmx",
+  "bugs": {
+    "url": "https://github.com/remanatech/artnet2usb/issues"
+  },
+  "keywords": [
+    "art-net",
+    "artnet",
+    "dmx",
+    "dmx512",
+    "usb-dmx",
+    "enttec",
+    "ftdi",
+    "open-dmx",
+    "lighting-control",
+    "stage-lighting"
+  ],
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "start": "electron .",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck:cli": "tsc --noEmit -p tsconfig.cli.json",
     "dist": "node scripts/build-standalone.mjs",
     "dist:mac": "node scripts/build-standalone.mjs --mac",
     "dist:win": "node scripts/build-standalone.mjs --win",

@@ -10,7 +10,7 @@ const listener = new ArtNetListener()
 let store: Store
 let engine: DmxOutputEngine
 
-/** Önizleme aboneliği: renderer hangi universe'ü izliyorsa kareler ona akar (throttle'lı). */
+/** Preview subscription: frames stream to the renderer for whichever universe it's watching (throttled). */
 let previewUniverse: number | null = null
 let lastPreviewPush = 0
 
@@ -44,7 +44,7 @@ async function buildState(): Promise<AppState> {
   const names = store.deviceNames
   const connected = await engine.listDevices()
   const devices: UsbDevice[] = connected.map((d) => ({ ...d, name: names[d.uid] }))
-  // Hafızadaki ama şu an takılı olmayan cihazlar da listelenir (adlarıyla)
+  // Devices remembered but not currently connected are also listed (with their names)
   for (const [uid, name] of Object.entries(names)) {
     if (!devices.some((d) => d.uid === uid)) {
       devices.push({ uid, path: '—', name, connected: false })
@@ -70,7 +70,7 @@ function registerIpc(): void {
 
   ipcMain.handle('routes:upsert', async (_e, route: RouteConfig) => {
     store.upsertRoute(route)
-    // Aktifse yeni ayarlarla yeniden başlat
+    // If active, restart it with the new settings
     if (engine.isActive(route.id)) {
       await engine.stop(route.id)
       if (route.enabled) await engine.start(route).catch(() => {})
@@ -117,7 +117,7 @@ function registerIpc(): void {
 
   ipcMain.handle('preview:set', (_e, universe: number | null) => {
     previewUniverse = universe
-    // Anında bir kare gönder (varsa) — kullanıcı beklemesin
+    // Send a frame immediately (if available) — don't make the user wait
     if (universe != null) {
       const fr = listener.frameOf(universe)
       if (fr) win?.webContents.send('preview:frame', universe, [...fr.data])
@@ -137,7 +137,7 @@ void app.whenReady().then(async () => {
     () => store.settings
   )
   listener.start((universe, data) => {
-    // Önizleme: izlenen universe'ün karelerini ~20fps ile renderer'a akıt
+    // Preview: stream frames of the watched universe to the renderer at ~20fps
     if (universe === previewUniverse && win && Date.now() - lastPreviewPush > 50) {
       lastPreviewPush = Date.now()
       win.webContents.send('preview:frame', universe, [...data])
@@ -145,7 +145,7 @@ void app.whenReady().then(async () => {
   })
   registerIpc()
   createWindow()
-  // Kayıtlı ve enabled rotaları otomatik başlat (cihaz takılıysa)
+  // Automatically start saved routes that are enabled (if the device is connected)
   for (const r of store.routes) {
     if (r.enabled) await engine.start(r).catch(() => {})
   }

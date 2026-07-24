@@ -2,15 +2,15 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 /**
- * Portable (standalone) config çözümü — GUI ve CLI'ın ortak kuralı:
- *  1. Exe'nin yanında config.json zaten VARSA her zaman o kazanır (USB bellek senaryosu).
- *  2. Yoksa exe'nin yanına yazmayı dene — yazılabiliyorsa config orada oluşur ve kalır.
- *  3. Yazılamıyorsa (örn. macOS app translocation, salt-okunur mount) OS-standart
- *     kullanıcı dizinine düşülür (eski davranış).
- * GUI ve CLI binary'si aynı klasöre konursa aynı config.json'u paylaşmaya devam eder.
+ * Portable (standalone) config resolution — the shared rule for GUI and CLI:
+ *  1. If a config.json already EXISTS next to the exe, it always wins (USB drive scenario).
+ *  2. Otherwise try writing next to the exe — if writable, the config is created there and stays.
+ *  3. If it can't be written (e.g. macOS app translocation, read-only mount), fall back
+ *     to the OS-standard user directory (the old behavior).
+ * If the GUI and CLI binaries are placed in the same folder, they keep sharing the same config.json.
  */
 
-/** Dizin gerçekten yazılabilir mi — deneme yazması yapar (accessSync Windows'ta yanıltıcı). */
+/** Is the directory actually writable — does a test write (accessSync is misleading on Windows). */
 export function isWritableDir(dir: string): boolean {
   const probe = path.join(dir, `.artnet2usb-write-probe-${process.pid}`)
   try {
@@ -33,10 +33,10 @@ export function resolvePortableConfigDir(exeSideDir: string | null, fallbackDir:
 }
 
 /**
- * Süreç tek dosyalık derlenmiş bir binary olarak mı çalışıyor?
+ * Is the process running as a single-file compiled binary?
  * (pkg → process.pkg; bun build --compile → globalThis.Bun)
- * Düz `node`/`tsx` çalıştırmasında false döner — o durumda process.execPath
- * node'un kendisidir, yanına config yazmak anlamsız/yanlış olur.
+ * Returns false under a plain `node`/`tsx` run — in that case process.execPath
+ * is node itself, and writing a config next to it would be meaningless/wrong.
  */
 export function isCompiledBinary(): boolean {
   const proc = process as unknown as { pkg?: unknown }

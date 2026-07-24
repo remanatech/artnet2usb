@@ -11,16 +11,16 @@ export interface Bridge {
 const RECONNECT_INTERVAL_MS = 5000
 
 /**
- * Electron'suz köprüleme — app/main.ts'teki app.whenReady() bloğunun
- * (BrowserWindow/registerIpc/preview HARİÇ) aynısı: dinleyiciyi başlat,
- * kayıtlı+enabled rotaları otomatik başlat. Hem `run` hem `configure`
- * alt-komutu bunu kullanır.
+ * Bridging without Electron — the same thing as the app.whenReady() block in
+ * app/main.ts (EXCLUDING BrowserWindow/registerIpc/preview): start the
+ * listener, auto-start the saved+enabled routes. Both the `run` and
+ * `configure` sub-commands use this.
  *
- * Ayrıca USB cihazı kopup yeniden takıldığında (ör. sahne arkasında kablo
- * oynaması) insan müdahalesi olmadan toparlanabilsin diye periyodik bir
- * gözetim döngüsü çalıştırır: etkin ama `active:false` durumundaki rotaları
- * sessizce yeniden başlatmayı dener (hata yutulur, bir sonraki turda tekrar
- * denenir). app/dmxOutput.ts'in kendisi değiştirilmez.
+ * It also runs a periodic watchdog loop so that when a USB device disconnects
+ * and reconnects (e.g. a cable getting jostled backstage), it can recover
+ * without human intervention: it silently retries starting any enabled route
+ * that is currently `active:false` (errors are swallowed and retried on the
+ * next tick). app/dmxOutput.ts itself is never modified.
  */
 export async function startBridge(
   store: Store,

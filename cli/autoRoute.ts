@@ -10,9 +10,9 @@ export interface AutoRouteError {
 }
 
 /**
- * "auto" komutunun karar mantığı: tam olarak 1 universe + 1 USB cihaz
- * görülmüşse eşleştirir, aksi halde hangi tarafın belirsiz olduğunu
- * açıklayan bir hata döner — çağıran taraf bu durumda `configure`'a yönlendirir.
+ * Decision logic for the "auto" command: matches when exactly 1 universe + 1 USB
+ * device have been seen, otherwise returns an error explaining which side is
+ * ambiguous — the caller then directs the user to `configure` in this case.
  */
 export function pickAutoRoute(universes: SeenUniverse[], devices: UsbDevice[]): AutoRouteMatch | AutoRouteError {
   if (universes.length === 0 && devices.length === 0) {
@@ -36,11 +36,11 @@ export function pickAutoRoute(universes: SeenUniverse[], devices: UsbDevice[]): 
 }
 
 /**
- * "auto" yalnızca universe+deviceUid'i gerçekten otomatik tespit eder.
- * protocol/hz/channelOffset için elle verilmiş bir CLI bayrağı yoksa (opts alanı
- * undefined), önceden kaydedilmiş "auto" rotasının değeri korunur — aksi halde
- * her yeniden başlatmada (systemd Restart=always, açılış vb.) manuel
- * ayarlanmış bir channelOffset/protokol sessizce varsayılana sıfırlanır.
+ * "auto" only actually auto-detects universe+deviceUid.
+ * If no CLI flag was explicitly given for protocol/hz/channelOffset (the opts
+ * field is undefined), the previously saved "auto" route's value is preserved —
+ * otherwise, on every restart (systemd Restart=always, boot, etc.) a manually
+ * configured channelOffset/protocol would silently reset to the default.
  */
 export function resolveAutoRouteFields(
   existing: RouteConfig | undefined,
