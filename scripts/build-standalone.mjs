@@ -34,6 +34,7 @@ const buildGui = has('--gui') || !has('--cli')
 const OUT_DIR = path.join(root, 'dist-standalone')
 const TMP_DIR = path.join(root, '.standalone-tmp')
 const PKG_CONFIG = path.join(root, '.standalone-pkg.config.json')
+const ICON_ICO = path.join(root, 'build', 'icon.ico')
 
 /** pkg hedefi → çıktı dosya adı eki. armv7l = Raspberry Pi (32-bit OS). */
 const CLI_TARGETS = {
@@ -52,13 +53,23 @@ function hostCliTarget() {
   return `node22-linux-${arch}`
 }
 
+// Node 20+ execFileSync, Windows'ta .cmd/.bat dosyalarını shell olmadan çalıştırmayı
+// reddeder (EINVAL). Bu yüzden win32'de shell:true kullanıp boşluk içeren argümanları
+// kendimiz tırnaklıyoruz (root yolunda boşluk olan kurulumlar için).
+const IS_WIN = process.platform === 'win32'
+
 function run(cmd, cmdArgs, opts = {}) {
   console.log(`\n$ ${cmd} ${cmdArgs.join(' ')}`)
-  execFileSync(cmd, cmdArgs, { cwd: root, stdio: 'inherit', ...opts })
+  const finalArgs = IS_WIN ? cmdArgs.map((a) => (/[\s"]/.test(a) ? `"${a}"` : a)) : cmdArgs
+  execFileSync(cmd, finalArgs, { cwd: root, stdio: 'inherit', shell: IS_WIN, ...opts })
+}
+
+function npm(npmArgs) {
+  run(IS_WIN ? 'npm.cmd' : 'npm', npmArgs)
 }
 
 function npx(bin, binArgs) {
-  run(process.platform === 'win32' ? 'npx.cmd' : 'npx', [bin, ...binArgs])
+  run(IS_WIN ? 'npx.cmd' : 'npx', [bin, ...binArgs])
 }
 
 function cliTargetList() {
@@ -78,9 +89,26 @@ function targetSuffix(target) {
   return suffix.startsWith('win') ? `${suffix}.exe` : suffix
 }
 
+/**
+ * Windows .exe'ye ikon + sürüm metadatası gömer (PE resource section).
+ * Sadece PE ikon gömmeyi destekleyen platformda anlamlı — macOS Mach-O / Linux ELF
+ * binary'leri gömülü ikon taşımadığı için onlarda atlanır. resedit saf JS olduğundan
+ * cross-build'de (mac/linux host'ta win hedefi) de çalışır. pkg payload'ı PE overlay'i
+ * olarak sonda durur; resedit overlay'i koruyarak sadece resource section'ı günceller.
+ */
+function embedWinResources(exePath) {
+  if (!fs.existsSync(ICON_ICO)) {
+    console.log('… ikon atlandı (build/icon.ico bulunamadı)')
+    return
+  }
+  console.log('\n=== CLI: Windows ikon + sürüm metadatası gömülüyor ===')
+  // Gerçek `node` süreci (.cmd/npx shim'i değil) — resedit kütüphanesini kullanır.
+  run('node', [path.join('scripts', 'embed-win-resources.mjs'), exePath, ICON_ICO])
+}
+
 async function buildCliBinaries() {
   console.log('\n=== CLI: tsc derleme ===')
-  run(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'build:cli'])
+  npm(['run', 'build:cli'])
 
   console.log('\n=== CLI: esbuild bundle ===')
   fs.rmSync(TMP_DIR, { recursive: true, force: true })
@@ -120,6 +148,8 @@ async function buildCliBinaries() {
       const extra = target.includes('armv7') ? ['--no-bytecode', '--public'] : []
       npx('pkg', [PKG_CONFIG, '--target', target, ...extra, '--output', out])
       console.log(`✓ ${path.relative(root, out)}`)
+      // Windows hedefiyse (PE .exe) ikon + sürüm bilgisini göm.
+      if (target.includes('win') && out.endsWith('.exe')) embedWinResources(out)
     }
   } finally {
     fs.rmSync(PKG_CONFIG, { force: true })
