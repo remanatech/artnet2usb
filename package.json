@@ -1,11 +1,14 @@
 {
-  "name": "relackout-artnet2usb",
+  "name": "artnet2usb-cli",
   "version": "0.2.0",
-  "description": "Free Art-Net to USB DMX bridge for Enttec DMX USB Pro and Open DMX / FTDI interfaces, with a desktop GUI and a headless CLI",
+  "description": "Headless Art-Net to USB DMX bridge CLI for Enttec DMX USB Pro and Open DMX / FTDI interfaces — a desktop GUI is also available",
   "main": "dist/main/main.js",
   "bin": {
     "artnet2usb-cli": "dist-cli/cli/index.js"
   },
+  "files": [
+    "dist-cli"
+  ],
   "author": "Remana <info@remana.tech> (https://relackout.com)",
   "license": "MIT",
   "repository": {
@@ -41,17 +44,18 @@
     "dist:linux": "node scripts/build-standalone.mjs --linux",
     "build:cli": "tsc -p tsconfig.cli.json",
     "dev:cli": "tsx cli/index.ts",
-    "dist:standalone": "node scripts/build-standalone.mjs"
+    "dist:standalone": "node scripts/build-standalone.mjs",
+    "prepack": "npm run build:cli"
   },
   "dependencies": {
     "@clack/prompts": "^1.7.0",
-    "@fontsource/space-grotesk": "^5.2.10",
     "commander": "^15.0.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
     "serialport": "^12.0.0"
   },
   "devDependencies": {
+    "@fontsource/space-grotesk": "^5.2.10",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
