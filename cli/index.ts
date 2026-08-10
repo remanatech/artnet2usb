@@ -5,7 +5,13 @@ import { startBridge } from './bridge'
 import { ArtNetListener } from '../app/artnet'
 import { DmxOutputEngine } from '../app/dmxOutput'
 import { pickAutoRoute, resolveAutoRouteFields } from './autoRoute'
-import { runDoctorChecks, runPreflightChecks, type DevicePreflight } from './doctor'
+import {
+  isUsbSerialCandidate,
+  runDoctorChecks,
+  runPreflightChecks,
+  KNOWN_SERIAL_GROUPS,
+  type DevicePreflight
+} from './doctor'
 import { registerRouteCommands } from './routeCommands'
 import { registerServiceCommands } from './serviceInstall'
 import {
@@ -29,6 +35,31 @@ type CommanderModule = typeof import('commander')
 
 function ts(): string {
   return new Date().toISOString().slice(11, 19)
+}
+
+/**
+ * Injected by scripts/build-standalone.mjs via `esbuild --define` for the pkg
+ * binary. Declared, not imported, so the dev/tsc paths still compile.
+ */
+declare const __CLI_VERSION__: string | undefined
+
+/**
+ * The version was previously hardcoded here and silently drifted from
+ * package.json on every release (0.3.0 artifacts reporting `--version 0.2.0`).
+ * Resolved from package.json instead, across all three run modes:
+ * pkg binary (define), `tsx cli/index.ts` (../), published dist-cli (../../).
+ */
+function cliVersion(): string {
+  if (typeof __CLI_VERSION__ === 'string' && __CLI_VERSION__) return __CLI_VERSION__
+  for (const rel of ['../package.json', '../../package.json']) {
+    try {
+      const v = (require(rel) as { version?: string }).version
+      if (v) return v
+    } catch {
+      // try the next layout
+    }
+  }
+  return '0.0.0-dev'
 }
 
 /** os.userInfo() throws when the uid has no passwd entry (some containers). */
@@ -60,11 +91,20 @@ async function runFixPermissions(opts: { assumeYes?: boolean } = {}): Promise<vo
     () => null,
     () => ({ onSignalLoss: 'hold', signalLossMs: 3000 })
   )
-  const devices = await engine.listDevices()
+  // Only USB interfaces matter here. Legacy /dev/ttyS* are root-owned, and
+  // deriving the group from one of those would advise joining `root` — which
+  // must never happen.
+  const devices = (await engine.listDevices()).filter((d) => isUsbSerialCandidate(d))
+  if (devices.length === 0) {
+    console.log('No USB serial device detected. Connect your DMX interface and run this again.')
+    return
+  }
   const checks = devices.map((d) => checkSerialAccess(d.path))
   const blocked = checks.find((c) => !c.accessible)
-  const group = blocked?.group ?? checks[0]?.group ?? FALLBACK_SERIAL_GROUP
-  const inGroup = blocked ? blocked.inGroup : checks[0]?.inGroup
+  const candidate = blocked ?? checks[0]
+  const group =
+    candidate?.group && KNOWN_SERIAL_GROUPS.includes(candidate.group) ? candidate.group : FALLBACK_SERIAL_GROUP
+  const inGroup = candidate?.inGroup
 
   const isRoot = typeof process.getuid === 'function' && process.getuid() === 0
   const plan = planPermissionFix({
@@ -434,7 +474,7 @@ async function main(): Promise<void> {
   program
     .name('artnet2usb-cli')
     .description('Headless Art-Net -> USB DMX bridge (shares config with the desktop app)')
-    .version('0.2.0')
+    .version(cliVersion())
 
   program
     .command('list-ports')
@@ -516,11 +556,32 @@ async function main(): Promise<void> {
         () => null,
         () => store.settings
       )
-      const devices = await engine.listDevices()
+      // Port enumeration itself can fail: serialport shells out to `udevadm` on
+      // Linux, which is absent on minimal/headless images. Reporting that as a
+      // bare "spawn udevadm ENOENT" tells the user nothing actionable.
+      let devices: Awaited<ReturnType<typeof engine.listDevices>>
+      try {
+        devices = await engine.listDevices()
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err)
+        console.log(`platform: ${process.platform}  user: ${currentUsername()}`)
+        console.log(`config: ${configDir}`)
+        console.log(`  ✗ Could not enumerate serial ports: ${detail}`)
+        if (process.platform === 'linux' && /udevadm/.test(detail)) {
+          console.log('    serialport uses udevadm to list ports. On a minimal or container image, install it:')
+          console.log('      sudo apt-get install -y udev      # Debian/Ubuntu')
+        }
+        process.exitCode = 1
+        return
+      }
+
+      // Legacy /dev/ttyS* exist on nearly every PC and are root-owned; probing
+      // them would bury the real USB-DMX diagnosis under irrelevant failures.
+      const usbDevices = devices.filter((d) => isUsbSerialCandidate(d))
 
       // I/O happens here; the decision logic in cli/doctor.ts stays pure.
       const preflightDevices: DevicePreflight[] = []
-      for (const d of devices) {
+      for (const d of usbDevices) {
         const access = checkSerialAccess(d.path)
         // Only probe when the node is actually usable — probing an inaccessible
         // port just re-reports the permission error we already have.
@@ -543,7 +604,7 @@ async function main(): Promise<void> {
 
       console.log(`platform: ${process.platform}  user: ${currentUsername()}`)
       console.log(`config: ${configDir}`)
-      console.log(`${devices.length} USB serial device(s) detected.`)
+      console.log(`${usbDevices.length} USB serial device(s) detected (${devices.length} serial port(s) total).`)
       for (const d of preflightDevices) {
         // Group membership is only the deciding factor on Linux; elsewhere it is noise.
         const grp = process.platform === 'linux' && d.group ? `, group ${d.group}${d.inGroup === false ? ' (not a member)' : ''}` : ''

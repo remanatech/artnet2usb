@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { runPreflightChecks, type DevicePreflight } from './doctor'
+import { isUsbSerialCandidate, runPreflightChecks, type DevicePreflight } from './doctor'
 
 const linux = { platform: 'linux' as NodeJS.Platform, username: 'ayse' }
 
@@ -67,5 +67,52 @@ describe('runPreflightChecks', () => {
     })
     expect(issues).toHaveLength(1)
     expect(issues[0]!.message).toContain('/dev/ttyUSB1')
+  })
+})
+
+describe('isUsbSerialCandidate', () => {
+  it('accepts ports that report USB ids', () => {
+    expect(isUsbSerialCandidate({ path: '/dev/ttyUSB0', vendorId: '0403', productId: '6001' })).toBe(true)
+  })
+
+  it('accepts USB paths even without ids', () => {
+    expect(isUsbSerialCandidate({ path: '/dev/ttyACM0' })).toBe(true)
+    expect(isUsbSerialCandidate({ path: '/dev/tty.usbserial-A1' })).toBe(true)
+  })
+
+  it('rejects legacy COM ports', () => {
+    // /dev/ttyS0..3 exist on nearly every PC and are root-owned; including them
+    // buried the real diagnosis under irrelevant failures.
+    expect(isUsbSerialCandidate({ path: '/dev/ttyS0' })).toBe(false)
+    expect(isUsbSerialCandidate({ path: '/dev/ttyS3' })).toBe(false)
+  })
+})
+
+describe('root group is never suggested', () => {
+  it('does not warn about joining a non-serial group', () => {
+    const issues = runPreflightChecks({
+      ...linux,
+      devices: [device({ path: '/dev/ttyS0', group: 'root', inGroup: false })]
+    })
+    expect(issues).toEqual([])
+  })
+})
+
+describe('open probe severity', () => {
+  it('treats a baud-rate quirk as a warning, not a failure', () => {
+    const issues = runPreflightChecks({
+      ...linux,
+      devices: [device({ openProblem: { kind: 'unknown', path: '/dev/ttyUSB0', detail: 'Error: Input/output error setting custom baud rate of 57600.' } })]
+    })
+    expect(issues).toHaveLength(1)
+    expect(issues[0]!.level).toBe('warning')
+  })
+
+  it('still fails hard on a denied open', () => {
+    const issues = runPreflightChecks({
+      ...linux,
+      devices: [device({ openProblem: { kind: 'permission', path: '/dev/ttyUSB0', detail: 'EACCES' } })]
+    })
+    expect(issues[0]!.level).toBe('error')
   })
 })

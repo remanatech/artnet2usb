@@ -6,6 +6,25 @@ export interface DoctorIssue {
   message: string
 }
 
+/**
+ * Groups that legitimately own USB serial devices across distros. Membership
+ * advice is deliberately limited to these: /dev/ttyS* (legacy COM ports, present
+ * on almost every PC) are owned by root, and telling anyone to join the `root`
+ * group would be actively harmful.
+ */
+export const KNOWN_SERIAL_GROUPS = ['dialout', 'uucp', 'plugdev', 'serial']
+
+/**
+ * Whether a listed port looks like a USB interface. serialport only reports
+ * vendorId/productId for USB devices, so legacy /dev/ttyS* are excluded — they
+ * exist on virtually every machine and would otherwise flood `doctor` with
+ * irrelevant failures. Pure — unit tested.
+ */
+export function isUsbSerialCandidate(p: { path: string; vendorId?: string; productId?: string }): boolean {
+  if (p.vendorId || p.productId) return true
+  return /(ttyUSB|ttyACM|tty\.usb|cu\.usb|ttyAMA)/i.test(p.path)
+}
+
 /** Per-device preflight facts gathered by the caller (all I/O happens there). */
 export interface DevicePreflight {
   path: string
@@ -69,24 +88,33 @@ export function runPreflightChecks(input: PreflightInput): DoctorIssue[] {
     }
 
     // Group membership can be false while access still succeeds (ACLs, udev
-    // rules, root). Worth flagging, but it is not itself a failure.
-    if (input.platform === 'linux' && d.inGroup === false) {
+    // rules). Worth flagging — but only for groups that actually manage serial
+    // devices; never advise joining `root`.
+    if (input.platform === 'linux' && d.inGroup === false && d.group && KNOWN_SERIAL_GROUPS.includes(d.group)) {
       issues.push({
         level: 'warning',
-        message: `${d.path}: your user is not in the "${d.group ?? FALLBACK_SERIAL_GROUP}" group, though access currently works (udev rule or ACL). This may break after a reboot.`
+        message: `${d.path}: your user is not in the "${d.group}" group, though access currently works (udev rule or ACL). This may break after a reboot.`
       })
     }
 
     if (d.openProblem) {
+      // Only the two conditions the probe exists to detect are failures. A
+      // device can legitimately refuse the probe's baud rate (Open DMX runs at
+      // 250000), and calling that an error would be a false alarm.
       if (d.openProblem.kind === 'busy') {
         issues.push({
           level: 'error',
           message: `${d.path}: port is already open in another process. Close other DMX software (or a second ArtNet2USB instance).`
         })
-      } else {
+      } else if (d.openProblem.kind === 'permission') {
         issues.push({
           level: 'error',
-          message: `${d.path}: port could not be opened — ${d.openProblem.detail ?? d.openProblem.kind}.`
+          message: `${d.path}: opening the port was denied — ${d.openProblem.detail ?? 'permission denied'}.`
+        })
+      } else {
+        issues.push({
+          level: 'warning',
+          message: `${d.path}: test open did not succeed — ${d.openProblem.detail ?? d.openProblem.kind}. This can be normal for some interfaces and does not necessarily mean the device is faulty.`
         })
       }
     }
