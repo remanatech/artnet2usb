@@ -1,8 +1,98 @@
 import type { RouteConfig, UsbDevice } from '../shared/types'
+import { buildFixCommand, FALLBACK_SERIAL_GROUP, type SerialAccessProblem } from '../shared/serialPermissions'
 
 export interface DoctorIssue {
   level: 'error' | 'warning'
   message: string
+}
+
+/** Per-device preflight facts gathered by the caller (all I/O happens there). */
+export interface DevicePreflight {
+  path: string
+  uid: string
+  /** Device node is present on disk. */
+  exists: boolean
+  /** This user can read AND write the node. */
+  accessible: boolean
+  /** Group owning the node (Linux). */
+  group?: string
+  /** Current process is a member of that group. */
+  inGroup?: boolean
+  /** Result of actually opening the port — detects a port held by another process. */
+  openProblem?: SerialAccessProblem | null
+}
+
+export interface PreflightInput {
+  platform: NodeJS.Platform
+  username: string
+  devices: DevicePreflight[]
+}
+
+/**
+ * Preflight half of `doctor`: environment and permission checks that are
+ * independent of the saved config. Pure — the caller performs the filesystem
+ * and serial probing and passes the findings in, so this stays unit tested.
+ */
+export function runPreflightChecks(input: PreflightInput): DoctorIssue[] {
+  const issues: DoctorIssue[] = []
+
+  if (input.devices.length === 0) {
+    issues.push({
+      level: 'error',
+      message: 'No USB serial device found. Connect your DMX interface (it should appear as /dev/ttyUSB* or /dev/ttyACM* on Linux).'
+    })
+    return issues
+  }
+
+  for (const d of input.devices) {
+    if (!d.exists) {
+      issues.push({ level: 'error', message: `${d.path}: device node no longer exists (unplugged?).` })
+      continue
+    }
+
+    if (!d.accessible) {
+      const group = d.group ?? FALLBACK_SERIAL_GROUP
+      // On Linux this is almost always group membership, and it has a one-command fix.
+      if (input.platform === 'linux') {
+        issues.push({
+          level: 'error',
+          message:
+            `${d.path}: permission denied — your user cannot open this port.\n` +
+            `    Your user is not in the "${group}" group, which owns the device.\n` +
+            `    Run: ${buildFixCommand(group, input.username)}\n` +
+            '    Then log out and log back in (or reboot). Do not run ArtNet2USB with sudo.'
+        })
+      } else {
+        issues.push({ level: 'error', message: `${d.path}: permission denied — your user cannot open this port.` })
+      }
+      continue
+    }
+
+    // Group membership can be false while access still succeeds (ACLs, udev
+    // rules, root). Worth flagging, but it is not itself a failure.
+    if (input.platform === 'linux' && d.inGroup === false) {
+      issues.push({
+        level: 'warning',
+        message: `${d.path}: your user is not in the "${d.group ?? FALLBACK_SERIAL_GROUP}" group, though access currently works (udev rule or ACL). This may break after a reboot.`
+      })
+    }
+
+    if (d.openProblem) {
+      if (d.openProblem.kind === 'busy') {
+        issues.push({
+          level: 'error',
+          message: `${d.path}: port is already open in another process. Close other DMX software (or a second ArtNet2USB instance).`
+        })
+      } else {
+        issues.push({
+          level: 'error',
+          message: `${d.path}: port could not be opened — ${d.openProblem.detail ?? d.openProblem.kind}.`
+        })
+      }
+    }
+  }
+
+  return issues
 }
 
 /**

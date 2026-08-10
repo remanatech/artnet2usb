@@ -53,6 +53,15 @@ export const en = {
 
   languageLabel: 'Language',
 
+  serialPermissionTitle: 'Serial Port Permission Required',
+
+  serialPermissionBody: 'ArtNet2USB can see your USB-DMX device at {{path}}, but your user does not have permission to access it. Your user is not in the "{{group}}" group.',
+
+  serialPermissionFix: 'Fix Permission',
+
+  serialPermissionFixing: 'Fixing…',
+
+
   errorDeviceNotConnected: 'Device not connected',
   errorRouteNotFound: 'Route not found',
   errorPortClosed: 'Port closed'

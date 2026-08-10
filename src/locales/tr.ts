@@ -54,6 +54,15 @@ export const tr: Record<TKey, string> = {
 
   languageLabel: 'Dil',
 
+  serialPermissionTitle: 'Seri Port İzni Gerekli',
+
+  serialPermissionBody: 'ArtNet2USB, USB-DMX cihazınızı {{path}} adresinde görüyor ancak kullanıcınızın erişim izni yok. Kullanıcınız "{{group}}" grubunda değil.',
+
+  serialPermissionFix: 'İzni Düzelt',
+
+  serialPermissionFixing: 'Düzeltiliyor…',
+
+
   errorDeviceNotConnected: 'Cihaz takılı değil',
   errorRouteNotFound: 'Rota bulunamadı',
   errorPortClosed: 'Port kapandı'

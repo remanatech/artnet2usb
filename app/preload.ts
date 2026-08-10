@@ -13,7 +13,9 @@ contextBridge.exposeInMainWorld('artnet2usb', {
       'routes:freeze',
       'settings:set',
       'preview:set',
-      'app:openExternal'
+      'app:openExternal',
+      'serial:diagnose',
+      'serial:fixPermissions'
     ]
     if (!allowed.includes(channel)) throw new Error(`Unauthorized channel: ${channel}`)
     return ipcRenderer.invoke(channel, ...args)

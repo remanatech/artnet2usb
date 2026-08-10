@@ -33,6 +33,9 @@ export async function startBridge(
   )
   listener.start(onFrame)
   for (const r of store.routes) {
+    // Swallowing here is intentional (the watchdog below keeps retrying), and
+    // safe: the engine records why the start failed, so statusOf() still
+    // reports the real cause — e.g. EACCES on /dev/ttyUSB0 — to the caller.
     if (r.enabled) await engine.start(r).catch(() => {})
   }
 

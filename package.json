@@ -1,6 +1,6 @@
 {
   "name": "artnet2usb-cli",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Headless Art-Net to USB DMX bridge CLI for Enttec DMX USB Pro and Open DMX / FTDI interfaces — a desktop GUI is also available",
   "main": "dist/main/main.js",
   "bin": {
