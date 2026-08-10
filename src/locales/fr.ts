@@ -54,6 +54,15 @@ export const fr: Record<TKey, string> = {
 
   languageLabel: 'Langue',
 
+  serialPermissionTitle: 'Autorisation du port série requise',
+
+  serialPermissionBody: 'ArtNet2USB détecte votre périphérique USB-DMX sur {{path}}, mais votre utilisateur n\'a pas l\'autorisation d\'y accéder. Votre utilisateur n\'appartient pas au groupe « {{group}} ».',
+
+  serialPermissionFix: 'Corriger l\'autorisation',
+
+  serialPermissionFixing: 'Correction…',
+
+
   errorDeviceNotConnected: 'Périphérique non connecté',
   errorRouteNotFound: 'Route introuvable',
   errorPortClosed: 'Port fermé'

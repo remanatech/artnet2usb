@@ -3,7 +3,25 @@ import path from 'node:path'
 import { ArtNetListener } from './artnet'
 import { DmxOutputEngine } from './dmxOutput'
 import { Store } from './store'
+import {
+  checkSerialAccess,
+  describeSerialProblem,
+  planPermissionFix,
+  FALLBACK_SERIAL_GROUP,
+  RELOGIN_NOTICE
+} from '../shared/serialPermissions'
+import { spawn } from 'node:child_process'
+import { userInfo } from 'node:os'
 import type { AppState, RouteConfig, RouteStatus, UsbDevice } from '../shared/types'
+
+/** os.userInfo() throws when the uid has no passwd entry (some containers). */
+function currentUsername(): string {
+  try {
+    return userInfo().username
+  } catch {
+    return process.env.USER ?? process.env.LOGNAME ?? 'your-user'
+  }
+}
 
 let win: BrowserWindow | null = null
 const listener = new ArtNetListener()
@@ -127,6 +145,62 @@ function registerIpc(): void {
 
   ipcMain.handle('app:openExternal', (_e, url: string) => {
     if (/^https?:\/\//.test(url)) void shell.openExternal(url)
+  })
+
+  /**
+   * Serial permission flow. Uses the SAME shared/serialPermissions utility as
+   * the CLI — there is deliberately no second implementation here.
+   */
+  ipcMain.handle('serial:diagnose', async () => {
+    const devices = await engine.listDevices()
+    const blocked = devices.find((d) => d.accessible === false)
+    if (!blocked) return { needsFix: false as const }
+    const access = checkSerialAccess(blocked.path)
+    const described = describeSerialProblem(
+      blocked.accessProblem ?? { kind: 'permission', path: blocked.path, group: access.group },
+      { platform: process.platform, username: currentUsername() }
+    )
+    return {
+      needsFix: true as const,
+      path: blocked.path,
+      group: access.group ?? FALLBACK_SERIAL_GROUP,
+      // Only Linux group membership has an in-app fix; elsewhere we can only explain.
+      canFix: process.platform === 'linux',
+      title: described.title,
+      lines: described.lines,
+      fixCommand: described.fixCommand
+    }
+  })
+
+  ipcMain.handle('serial:fixPermissions', async () => {
+    const devices = await engine.listDevices()
+    const blocked = devices.find((d) => d.accessible === false)
+    const access = blocked ? checkSerialAccess(blocked.path) : null
+    const plan = planPermissionFix({
+      platform: process.platform,
+      username: currentUsername(),
+      group: access?.group,
+      inGroup: access?.inGroup,
+      // pkexec elevates ONLY usermod — the app itself keeps running unprivileged.
+      elevator: 'pkexec'
+    })
+    if (!plan.needed) return { ok: true as const, changed: false, message: plan.reason }
+    if (!plan.argv) return { ok: false as const, message: `Run this manually:\n${plan.display}` }
+
+    const code = await new Promise<number>((resolve) => {
+      const child = spawn(plan.argv![0]!, plan.argv!.slice(1), { stdio: 'ignore' })
+      child.on('error', () => resolve(127))
+      child.on('close', (c) => resolve(c ?? 1))
+    })
+    if (code === 0) return { ok: true as const, changed: true, message: RELOGIN_NOTICE }
+    // 126/127 = polkit dialog dismissed or pkexec missing.
+    return {
+      ok: false as const,
+      message:
+        code === 126 || code === 127
+          ? `Authorization was cancelled or pkexec is unavailable. Run this in a terminal:\n${plan.display}`
+          : `Could not update permissions (exit ${code}). Run this in a terminal:\n${plan.display}`
+    }
   })
 }
 

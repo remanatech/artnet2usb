@@ -1,5 +1,9 @@
 /** Main process ↔ renderer shared types. */
 
+import type { SerialAccessProblem } from './serialPermissions'
+
+export type { SerialAccessProblem }
+
 /** An Art-Net DMX broadcast seen on the network (per universe). */
 export interface SeenUniverse {
   /** Art-Net 15-bit port address: Net<<8 | SubUni */
@@ -29,7 +33,17 @@ export interface UsbDevice {
   serialNumber?: string
   /** User-given name (from device memory) */
   name?: string
+  /** Device node is present in the port list. */
   connected: boolean
+  /**
+   * The port can actually be opened by this user. A device can be `connected`
+   * but NOT accessible — on Linux the node is typically owned by the `dialout`
+   * group, so a user outside it sees the device yet gets EACCES on open.
+   * Undefined only when the check could not run.
+   */
+  accessible?: boolean
+  /** Why the port is not accessible; preserved so the real cause is never lost. */
+  accessProblem?: SerialAccessProblem | null
 }
 
 export type OutputProtocol = 'enttec-pro' | 'open-dmx'

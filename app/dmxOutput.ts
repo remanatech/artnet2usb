@@ -1,5 +1,7 @@
 import { SerialPort } from 'serialport'
 import type { AppSettings, OutputProtocol, RouteConfig, RouteStatus, UsbDevice } from '../shared/types'
+import { checkSerialAccess, classifySerialError, describeSerialProblem } from '../shared/serialPermissions'
+import { userInfo } from 'node:os'
 
 /**
  * USB DMX output engine. Each active route runs on its own timer (hz):
@@ -54,6 +56,15 @@ export function deviceUid(p: { vendorId?: string; productId?: string; serialNumb
   return p.serialNumber ? `${vid}:${pid}:${p.serialNumber}` : `${vid}:${pid}:${p.path}`
 }
 
+/** os.userInfo() throws when the uid has no passwd entry (some containers). */
+function safeUsername(): string {
+  try {
+    return userInfo().username
+  } catch {
+    return process.env.USER ?? process.env.LOGNAME ?? 'your-user'
+  }
+}
+
 interface ActiveOutput {
   port: SerialPort
   timer: NodeJS.Timeout
@@ -67,23 +78,41 @@ interface ActiveOutput {
 export class DmxOutputEngine {
   private active = new Map<string, ActiveOutput>() // routeId -> output
   private lastFrames = new Map<string, Buffer>() // routeId -> last frame sent
+  /**
+   * Why the last start() attempt failed, per route. Callers (CLI bridge
+   * watchdog, GUI) retry in a loop and used to swallow the error, which turned
+   * a permission problem into a bare "device not connected". Keeping it here
+   * means statusOf() can report the real cause without changing call sites.
+   */
+  private startErrors = new Map<string, string>()
 
   constructor(
     private getFrame: (universe: number) => { data: Buffer; lastAt: number } | null,
     private getSettings: () => AppSettings
   ) {}
 
+  /**
+   * Being listed is NOT the same as being usable: on Linux the device node is
+   * owned by a group (usually `dialout`) and a user outside it can see the port
+   * but never open it. Each entry therefore carries a real, non-invasive
+   * permission check alongside its presence.
+   */
   async listDevices(): Promise<Omit<UsbDevice, 'name'>[]> {
     const ports = await SerialPort.list()
-    return ports.map((p) => ({
-      uid: deviceUid(p),
-      path: p.path,
-      manufacturer: p.manufacturer,
-      vendorId: p.vendorId,
-      productId: p.productId,
-      serialNumber: p.serialNumber,
-      connected: true
-    }))
+    return ports.map((p) => {
+      const access = checkSerialAccess(p.path)
+      return {
+        uid: deviceUid(p),
+        path: p.path,
+        manufacturer: p.manufacturer,
+        vendorId: p.vendorId,
+        productId: p.productId,
+        serialNumber: p.serialNumber,
+        connected: true,
+        accessible: access.accessible,
+        accessProblem: access.problem
+      }
+    })
   }
 
   isActive(routeId: string): boolean {
@@ -94,7 +123,9 @@ export class DmxOutputEngine {
     const a = this.active.get(route.id)
     return {
       active: !!a && !a.error,
-      error: a?.error ?? null,
+      // A route that never opened has no ActiveOutput; its failure reason lives
+      // in startErrors, otherwise the caller would only see a null error.
+      error: a?.error ?? this.startErrors.get(route.id) ?? null,
       framesSent: a?.framesSent ?? 0,
       frozen: !!a?.frozenFrame
     }
@@ -119,7 +150,10 @@ export class DmxOutputEngine {
     await this.stop(route.id)
     const devices = await this.listDevices()
     const dev = devices.find((d) => d.uid === route.deviceUid)
-    if (!dev) throw new Error('device_not_connected')
+    if (!dev) {
+      this.startErrors.set(route.id, 'device_not_connected')
+      throw new Error('device_not_connected')
+    }
     const baud = route.protocol === 'open-dmx' ? 250000 : 57600
     const port = new SerialPort({
       path: dev.path,
@@ -129,9 +163,25 @@ export class DmxOutputEngine {
       parity: 'none',
       autoOpen: false
     })
-    await new Promise<void>((resolve, reject) => {
-      port.open((err) => (err ? reject(err) : resolve()))
-    })
+    try {
+      await new Promise<void>((resolve, reject) => {
+        port.open((err) => (err ? reject(err) : resolve()))
+      })
+    } catch (err) {
+      // The device IS plugged in — reporting "not connected" here would send the
+      // user hunting for a cable fault instead of the actual one-command fix.
+      const problem = {
+        kind: classifySerialError(err),
+        path: dev.path,
+        group: dev.accessProblem?.group,
+        detail: err instanceof Error ? err.message : String(err)
+      }
+      const described = describeSerialProblem(problem, { platform: process.platform, username: safeUsername() })
+      const message = [described.title, ...described.lines].join('\n')
+      this.startErrors.set(route.id, message)
+      throw new Error(message)
+    }
+    this.startErrors.delete(route.id)
     const hz = Math.max(1, Math.min(44, route.hz))
     const out: ActiveOutput = { port, timer: null as unknown as NodeJS.Timeout, framesSent: 0, error: null, writing: false, frozenFrame: null }
     out.timer = setInterval(() => void this.tick(route, out), Math.round(1000 / hz))

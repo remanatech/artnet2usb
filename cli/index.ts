@@ -5,9 +5,24 @@ import { startBridge } from './bridge'
 import { ArtNetListener } from '../app/artnet'
 import { DmxOutputEngine } from '../app/dmxOutput'
 import { pickAutoRoute, resolveAutoRouteFields } from './autoRoute'
-import { runDoctorChecks } from './doctor'
+import {
+  isUsbSerialCandidate,
+  runDoctorChecks,
+  runPreflightChecks,
+  KNOWN_SERIAL_GROUPS,
+  type DevicePreflight
+} from './doctor'
 import { registerRouteCommands } from './routeCommands'
 import { registerServiceCommands } from './serviceInstall'
+import {
+  checkSerialAccess,
+  planPermissionFix,
+  probeSerialOpen,
+  RELOGIN_NOTICE,
+  FALLBACK_SERIAL_GROUP
+} from '../shared/serialPermissions'
+import { spawn } from 'node:child_process'
+import { userInfo } from 'node:os'
 import type { OutputProtocol, RouteConfig } from '../shared/types'
 import type { Command } from 'commander'
 
@@ -20,6 +35,132 @@ type CommanderModule = typeof import('commander')
 
 function ts(): string {
   return new Date().toISOString().slice(11, 19)
+}
+
+/**
+ * Injected by scripts/build-standalone.mjs via `esbuild --define` for the pkg
+ * binary. Declared, not imported, so the dev/tsc paths still compile.
+ */
+declare const __CLI_VERSION__: string | undefined
+
+/**
+ * The version was previously hardcoded here and silently drifted from
+ * package.json on every release (0.3.0 artifacts reporting `--version 0.2.0`).
+ * Resolved from package.json instead, across all three run modes:
+ * pkg binary (define), `tsx cli/index.ts` (../), published dist-cli (../../).
+ */
+function cliVersion(): string {
+  if (typeof __CLI_VERSION__ === 'string' && __CLI_VERSION__) return __CLI_VERSION__
+  for (const rel of ['../package.json', '../../package.json']) {
+    try {
+      const v = (require(rel) as { version?: string }).version
+      if (v) return v
+    } catch {
+      // try the next layout
+    }
+  }
+  return '0.0.0-dev'
+}
+
+/** os.userInfo() throws when the uid has no passwd entry (some containers). */
+function currentUsername(): string {
+  try {
+    return userInfo().username
+  } catch {
+    return process.env.USER ?? process.env.LOGNAME ?? 'your-user'
+  }
+}
+
+/**
+ * `fix-permissions` — adds the user to the group that owns the serial device.
+ *
+ * Only the `usermod` call is elevated; ArtNet2USB itself is never expected to
+ * run as root, and this command deliberately never tells anyone to run the CLI
+ * under sudo. On non-Linux platforms it does nothing.
+ */
+async function runFixPermissions(opts: { assumeYes?: boolean } = {}): Promise<void> {
+  const username = currentUsername()
+
+  if (process.platform !== 'linux') {
+    console.log(`Nothing to do: serial group permissions only apply on Linux (this is ${process.platform}).`)
+    return
+  }
+
+  // Prefer the group that actually owns a connected device over guessing.
+  const engine = new DmxOutputEngine(
+    () => null,
+    () => ({ onSignalLoss: 'hold', signalLossMs: 3000 })
+  )
+  // Only USB interfaces matter here. Legacy /dev/ttyS* are root-owned, and
+  // deriving the group from one of those would advise joining `root` — which
+  // must never happen.
+  const devices = (await engine.listDevices()).filter((d) => isUsbSerialCandidate(d))
+  if (devices.length === 0) {
+    console.log('No USB serial device detected. Connect your DMX interface and run this again.')
+    return
+  }
+  const checks = devices.map((d) => checkSerialAccess(d.path))
+  const blocked = checks.find((c) => !c.accessible)
+  const candidate = blocked ?? checks[0]
+  const group =
+    candidate?.group && KNOWN_SERIAL_GROUPS.includes(candidate.group) ? candidate.group : FALLBACK_SERIAL_GROUP
+  const inGroup = candidate?.inGroup
+
+  const isRoot = typeof process.getuid === 'function' && process.getuid() === 0
+  const plan = planPermissionFix({
+    platform: 'linux',
+    username,
+    group,
+    inGroup,
+    elevator: isRoot ? 'none' : 'sudo',
+    isRoot
+  })
+
+  if (!plan.needed) {
+    console.log(plan.reason)
+    if (devices.length > 0 && checks.every((c) => c.accessible)) console.log('All detected serial ports are accessible.')
+    return
+  }
+
+  console.log(plan.reason)
+  console.log(`This will run: ${plan.argv?.join(' ') ?? plan.display}`)
+  if (!opts.assumeYes) {
+    const ok = await confirmTty('Proceed? [y/N] ')
+    if (!ok) {
+      console.log(`Aborted. You can run it yourself:\n  ${plan.display}`)
+      return
+    }
+  }
+
+  const code = await runCommand(plan.argv!)
+  if (code === 0) {
+    console.log(RELOGIN_NOTICE)
+    return
+  }
+  console.error(`Command failed (exit ${code}). You can run it yourself:\n  ${plan.display}`)
+  process.exitCode = 1
+}
+
+function confirmTty(question: string): Promise<boolean> {
+  // Non-interactive (piped/CI) input must not silently count as consent.
+  if (!process.stdin.isTTY) return Promise.resolve(false)
+  return new Promise((resolve) => {
+    process.stdout.write(question)
+    process.stdin.setEncoding('utf8')
+    process.stdin.once('data', (chunk) => {
+      process.stdin.pause()
+      resolve(/^y(es)?$/i.test(String(chunk).trim()))
+    })
+    process.stdin.resume()
+  })
+}
+
+function runCommand(argv: string[]): Promise<number> {
+  return new Promise((resolve) => {
+    const child = spawn(argv[0]!, argv.slice(1), { stdio: 'inherit' })
+    child.on('error', () => resolve(127))
+    child.on('close', (code) => resolve(code ?? 1))
+  })
 }
 
 async function listPorts(): Promise<void> {
@@ -59,10 +200,17 @@ function statusLine(nowTs: string, r: RouteConfig, status: ReturnType<import('..
       frozen: status.frozen
     })
   }
-  const line = status.active
-    ? `OK — ${status.framesSent} frames sent${status.frozen ? ' (frozen)' : ''}`
-    : `ERROR: ${status.error ?? 'device not connected'}`
-  return `[${nowTs}] universe ${r.universe} -> ${r.deviceUid} (${r.protocol}, ${r.hz}Hz): ${line}`
+  const head = `[${nowTs}] universe ${r.universe} -> ${r.deviceUid} (${r.protocol}, ${r.hz}Hz)`
+  if (status.active) {
+    return `${head}: OK — ${status.framesSent} frames sent${status.frozen ? ' (frozen)' : ''}`
+  }
+  // The engine reports permission/busy failures as multi-line text (cause +
+  // remedy). Keep every line — collapsing it back into a one-liner is exactly
+  // how a permission problem used to masquerade as "device not connected".
+  const reason = status.error ?? 'device_not_connected'
+  const [first, ...rest] = reason.split('\n')
+  const detail = rest.length > 0 ? `\n${rest.map((l) => (l ? `    ${l}` : '')).join('\n')}` : ''
+  return `${head}: ERROR: ${first}${detail}`
 }
 
 async function runBridge(configDir: string, opts: RunOpts = {}): Promise<void> {
@@ -326,7 +474,7 @@ async function main(): Promise<void> {
   program
     .name('artnet2usb-cli')
     .description('Headless Art-Net -> USB DMX bridge (shares config with the desktop app)')
-    .version('0.2.0')
+    .version(cliVersion())
 
   program
     .command('list-ports')
@@ -398,18 +546,70 @@ async function main(): Promise<void> {
 
   program
     .command('doctor')
-    .description('Check the saved config for common problems (disconnected devices, conflicting routes)')
+    .description('Preflight: check serial port permissions, device access, and the saved config')
     .option('--config <dir>', 'Config directory override (default: shared with the desktop app)')
-    .action(async (opts: { config?: string }) => {
+    .option('--no-probe', 'Skip opening each port (the open probe is what detects a port held by another process)')
+    .action(async (opts: { config?: string; probe: boolean }) => {
       const configDir = opts.config ?? resolveConfigDir()
       const store = new Store(configDir)
       const engine = new DmxOutputEngine(
         () => null,
         () => store.settings
       )
-      const devices = await engine.listDevices()
-      const issues = runDoctorChecks(store.routes, devices)
+      // Port enumeration itself can fail: serialport shells out to `udevadm` on
+      // Linux, which is absent on minimal/headless images. Reporting that as a
+      // bare "spawn udevadm ENOENT" tells the user nothing actionable.
+      let devices: Awaited<ReturnType<typeof engine.listDevices>>
+      try {
+        devices = await engine.listDevices()
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err)
+        console.log(`platform: ${process.platform}  user: ${currentUsername()}`)
+        console.log(`config: ${configDir}`)
+        console.log(`  ✗ Could not enumerate serial ports: ${detail}`)
+        if (process.platform === 'linux' && /udevadm/.test(detail)) {
+          console.log('    serialport uses udevadm to list ports. On a minimal or container image, install it:')
+          console.log('      sudo apt-get install -y udev      # Debian/Ubuntu')
+        }
+        process.exitCode = 1
+        return
+      }
+
+      // Legacy /dev/ttyS* exist on nearly every PC and are root-owned; probing
+      // them would bury the real USB-DMX diagnosis under irrelevant failures.
+      const usbDevices = devices.filter((d) => isUsbSerialCandidate(d))
+
+      // I/O happens here; the decision logic in cli/doctor.ts stays pure.
+      const preflightDevices: DevicePreflight[] = []
+      for (const d of usbDevices) {
+        const access = checkSerialAccess(d.path)
+        // Only probe when the node is actually usable — probing an inaccessible
+        // port just re-reports the permission error we already have.
+        const openProblem = opts.probe && access.accessible ? await probeSerialOpen(d.path) : null
+        preflightDevices.push({
+          path: d.path,
+          uid: d.uid,
+          exists: access.exists,
+          accessible: access.accessible,
+          group: access.group,
+          inGroup: access.inGroup,
+          openProblem
+        })
+      }
+
+      const issues = [
+        ...runPreflightChecks({ platform: process.platform, username: currentUsername(), devices: preflightDevices }),
+        ...runDoctorChecks(store.routes, devices)
+      ]
+
+      console.log(`platform: ${process.platform}  user: ${currentUsername()}`)
       console.log(`config: ${configDir}`)
+      console.log(`${usbDevices.length} USB serial device(s) detected (${devices.length} serial port(s) total).`)
+      for (const d of preflightDevices) {
+        // Group membership is only the deciding factor on Linux; elsewhere it is noise.
+        const grp = process.platform === 'linux' && d.group ? `, group ${d.group}${d.inGroup === false ? ' (not a member)' : ''}` : ''
+        console.log(`  ${d.accessible ? '✓' : '✗'} ${d.path}${grp}`)
+      }
       console.log(`${store.routes.length} route(s), ${store.routes.filter((r) => r.enabled).length} enabled.`)
       if (issues.length === 0) {
         console.log('No issues found.')
@@ -417,6 +617,14 @@ async function main(): Promise<void> {
       }
       for (const issue of issues) console.log(`  ${issue.level === 'error' ? '✗' : '⚠'} ${issue.message}`)
       if (issues.some((i) => i.level === 'error')) process.exitCode = 1
+    })
+
+  program
+    .command('fix-permissions')
+    .description('Linux only: add your user to the serial device group so ArtNet2USB can open the port')
+    .option('--yes', 'Do not ask for confirmation')
+    .action(async (opts: { yes?: boolean }) => {
+      await runFixPermissions({ assumeYes: opts.yes })
     })
 
   program

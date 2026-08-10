@@ -22,7 +22,88 @@ const api = {
   freezeRoute: (id: string) => window.artnet2usb.invoke('routes:freeze', id) as Promise<AppState>,
   setSettings: (s: AppState['settings']) => window.artnet2usb.invoke('settings:set', s) as Promise<AppState>,
   setPreview: (u: number | null) => window.artnet2usb.invoke('preview:set', u),
-  openExternal: (url: string) => window.artnet2usb.invoke('app:openExternal', url)
+  openExternal: (url: string) => window.artnet2usb.invoke('app:openExternal', url),
+  diagnoseSerial: () => window.artnet2usb.invoke('serial:diagnose') as Promise<SerialDiagnosis>,
+  fixSerialPermissions: () => window.artnet2usb.invoke('serial:fixPermissions') as Promise<SerialFixResult>
+}
+
+/** Mirrors the `serial:diagnose` IPC reply (see app/main.ts). */
+type SerialDiagnosis =
+  | { needsFix: false }
+  | {
+      needsFix: true
+      path: string
+      group: string
+      canFix: boolean
+      title: string
+      lines: string[]
+      fixCommand: string | null
+    }
+
+type SerialFixResult = { ok: true; changed: boolean; message: string } | { ok: false; message: string }
+
+/**
+ * Shown when a USB-DMX device is visible but the OS refuses to open its port —
+ * on Linux almost always because the user is not in the device's group. The
+ * button elevates ONLY the `usermod` call (via pkexec in the main process); the
+ * app itself keeps running as the normal user.
+ */
+function SerialPermissionBanner({ t, onFixed }: { t: Translate; onFixed: () => void }): JSX.Element | null {
+  const [diag, setDiag] = useState<SerialDiagnosis | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<SerialFixResult | null>(null)
+
+  const refresh = useCallback(() => {
+    void api
+      .diagnoseSerial()
+      .then(setDiag)
+      .catch(() => setDiag(null))
+  }, [])
+
+  useEffect(() => {
+    refresh()
+    const id = setInterval(refresh, 5000)
+    return () => clearInterval(id)
+  }, [refresh])
+
+  if (!diag?.needsFix) return null
+
+  return (
+    <div className="mx-4 mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-200">
+      <p className="font-bold uppercase tracking-wider">{t('serialPermissionTitle')}</p>
+      <p className="mt-1.5 leading-relaxed">{t('serialPermissionBody', { path: diag.path, group: diag.group })}</p>
+
+      {result && (
+        <p className={`mt-2 whitespace-pre-line ${result.ok ? 'text-emerald-300' : 'text-red-300'}`}>{result.message}</p>
+      )}
+
+      <div className="mt-2.5 flex flex-wrap items-center gap-2">
+        {diag.canFix && !(result?.ok && result.changed) && (
+          <button
+            type="button"
+            disabled={busy}
+            className="rounded-md border border-amber-400/60 bg-amber-400/15 px-3 py-1.5 font-bold uppercase tracking-wider text-amber-100 disabled:opacity-50"
+            onClick={() => {
+              setBusy(true)
+              void api
+                .fixSerialPermissions()
+                .then((r) => {
+                  setResult(r)
+                  if (r.ok && r.changed) onFixed()
+                })
+                .catch((e: unknown) => setResult({ ok: false, message: e instanceof Error ? e.message : String(e) }))
+                .finally(() => setBusy(false))
+            }}
+          >
+            {busy ? t('serialPermissionFixing') : t('serialPermissionFix')}
+          </button>
+        )}
+        {diag.fixCommand && (
+          <code className="rounded bg-black/30 px-2 py-1 font-mono text-[10px] text-amber-100/90">{diag.fixCommand}</code>
+        )}
+      </div>
+    </div>
+  )
 }
 
 export default function App() {
@@ -92,6 +173,8 @@ export default function App() {
           <button className="font-mono" onClick={() => setError(null)}>x</button>
         </div>
       )}
+
+      <SerialPermissionBanner t={t} onFixed={() => void refresh()} />
 
       <main className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto p-4 lg:grid-cols-2">
         <section className="flex min-h-0 flex-col gap-3">

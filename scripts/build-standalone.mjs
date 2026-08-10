@@ -121,6 +121,9 @@ async function buildCliBinaries() {
     '--target=node18',
     '--format=cjs',
     '--external:@serialport/bindings-cpp',
+    // Keeps `--version` in step with package.json; it used to be hardcoded in
+    // cli/index.ts and drifted every release.
+    `--define:__CLI_VERSION__=${JSON.stringify(JSON.stringify(version))}`,
     `--outfile=${path.join(TMP_DIR, 'cli-bundle.cjs')}`
   ])
 
