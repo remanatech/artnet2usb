@@ -220,14 +220,15 @@ export class DmxOutputEngine {
         )
       } else {
         // Open DMX: break (~1ms) + MAB (Mark After Break) + frame, via serialport set({brk}).
+        // Keep RTS clear on both calls; serialport otherwise asserts it by default.
         // NOTE: flush() was tried between break→data but caused jitter (reverted).
         // In this version flush() was moved to the VERY START of the loop — it tries
         // to clear any leftover stray byte from the previous cycle without touching
         // the current break/MAB timing.
         await new Promise<void>((resolve, reject) => out.port.flush((e) => (e ? reject(e) : resolve())))
-        await new Promise<void>((resolve, reject) => out.port.set({ brk: true }, (e) => (e ? reject(e) : resolve())))
+        await new Promise<void>((resolve, reject) => out.port.set({ brk: true, rts: false }, (e) => (e ? reject(e) : resolve())))
         await new Promise((r) => setTimeout(r, 1))
-        await new Promise<void>((resolve, reject) => out.port.set({ brk: false }, (e) => (e ? reject(e) : resolve())))
+        await new Promise<void>((resolve, reject) => out.port.set({ brk: false, rts: false }, (e) => (e ? reject(e) : resolve())))
         await new Promise((r) => setTimeout(r, 1))
         const frame = Buffer.alloc(513)
         frame[0] = 0
